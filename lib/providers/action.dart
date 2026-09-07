@@ -3784,17 +3784,13 @@ class ProfilesAction extends _$ProfilesAction {
           !applyAfterCommit) {
         return outcome;
       }
+      // Only the current profile needs a full ApplyConfig. Unused subscriptions
+      // stay as YAML until the user switches; prefetching them here kept a
+      // second parsed tree alive in :remote after every sync.
       if (newProfile.id == ref.read(currentProfileIdProvider)) {
         ref
             .read(setupActionProvider.notifier)
             .applyProfileDebounce(silence: true);
-      } else {
-        // 非活跃 profile：异步预热快照
-        unawaited(
-          ref
-              .read(proxiesActionProvider.notifier)
-              .prefetchSnapshotForProfile(newProfile),
-        );
       }
       return outcome;
     } finally {

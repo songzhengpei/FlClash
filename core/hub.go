@@ -107,8 +107,7 @@ func handleShutdown() bool {
 }
 
 func handleValidateConfig(path string) string {
-	_, err := executor.ParseWithPath(path)
-	if err != nil {
+	if err := validateConfigFile(path); err != nil {
 		return err.Error()
 	}
 	return ""

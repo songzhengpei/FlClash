@@ -18,7 +18,7 @@ func writeValidationConfig(t *testing.T, contents string) string {
 	return path
 }
 
-func TestHandleValidateConfigUsesMihomoSemanticParser(t *testing.T) {
+func TestHandleValidateConfigUsesRawYamlOnly(t *testing.T) {
 	previous := currentConfig
 	sentinel := &config.Config{}
 	currentConfig = sentinel
@@ -32,9 +32,19 @@ func TestHandleValidateConfigUsesMihomoSemanticParser(t *testing.T) {
 		t.Fatal("parse-only validation replaced the active runtime config")
 	}
 
-	invalid := writeValidationConfig(t, "proxies:\n  - name: broken\n    type: definitely-unsupported\nrules:\n  - MATCH,broken\n")
-	if message := handleValidateConfig(invalid); message == "" {
-		t.Fatal("semantically invalid proxy type was accepted")
+	// Well-formed YAML with an unknown proxy type is saved; ApplyConfig does the
+	// semantic check when the profile actually becomes current.
+	unknownType := writeValidationConfig(t, "proxies:\n  - name: broken\n    type: definitely-unsupported\nrules:\n  - MATCH,broken\n")
+	if message := handleValidateConfig(unknownType); message != "" {
+		t.Fatalf("raw YAML with unknown proxy type should be accepted: %s", message)
+	}
+	if currentConfig != sentinel {
+		t.Fatal("raw YAML validation replaced the active runtime config")
+	}
+
+	broken := writeValidationConfig(t, "proxies: [unterminated\n")
+	if message := handleValidateConfig(broken); message == "" {
+		t.Fatal("broken YAML was accepted")
 	}
 	if currentConfig != sentinel {
 		t.Fatal("failed validation replaced the active runtime config")
@@ -45,6 +55,6 @@ func TestHandleValidateConfigRejectsZeroLengthFile(t *testing.T) {
 	path := writeValidationConfig(t, "")
 	message := handleValidateConfig(path)
 	if message == "" || !strings.Contains(message, "is empty") {
-		t.Fatalf("expected Mihomo empty-file error, got %q", message)
+		t.Fatalf("expected empty-file error, got %q", message)
 	}
 }

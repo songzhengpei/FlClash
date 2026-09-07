@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sync"
 )
 
@@ -233,10 +234,32 @@ func updateConfig(params *UpdateParams) {
 	updateListeners()
 }
 
-func applyConfig(params *SetupParams) error {
+func validateConfigFile(path string) error {
+	buf, err := readFile(path)
+	if err != nil {
+		return err
+	}
+	if len(buf) == 0 {
+		return fmt.Errorf("configuration file %s is empty", path)
+	}
+	_, err = config.UnmarshalRawConfig(buf)
+	return err
+}
+
+func releaseUnusedOSMemory() {
 	runtime.GC()
+	debug.FreeOSMemory()
+}
+
+func applyConfig(params *SetupParams) error {
 	runLock.Lock()
-	defer runLock.Unlock()
+	err := applyConfigLocked(params)
+	runLock.Unlock()
+	releaseUnusedOSMemory()
+	return err
+}
+
+func applyConfigLocked(params *SetupParams) error {
 	var err error
 	defaultTestURL = params.TestURL
 	if defaultTestURL == "" {
