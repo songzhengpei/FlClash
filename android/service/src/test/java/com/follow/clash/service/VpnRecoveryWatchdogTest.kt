@@ -98,6 +98,89 @@ class VpnRecoveryWatchdogTest {
     }
 
     @Test
+    fun recoveryFailureWritebackRequiresSameGenerationAndRoomToRetry() {
+        assertTrue(
+            shouldPersistRecoveryFailure(
+                generation = 2L,
+                currentGeneration = 2L,
+                taskRemovalStopRequested = false,
+                checkpointValid = true,
+                forceNonSticky = false,
+                nextFailures = 1,
+            )
+        )
+        assertFalse(
+            shouldPersistRecoveryFailure(
+                generation = 2L,
+                currentGeneration = 3L,
+                taskRemovalStopRequested = false,
+                checkpointValid = true,
+                forceNonSticky = false,
+                nextFailures = 1,
+            )
+        )
+        assertFalse(
+            shouldPersistRecoveryFailure(
+                generation = 2L,
+                currentGeneration = 2L,
+                taskRemovalStopRequested = false,
+                checkpointValid = false,
+                forceNonSticky = false,
+                nextFailures = 1,
+            )
+        )
+        assertFalse(
+            shouldPersistRecoveryFailure(
+                generation = 2L,
+                currentGeneration = 2L,
+                taskRemovalStopRequested = false,
+                checkpointValid = true,
+                forceNonSticky = false,
+                nextFailures = VPN_RECOVERY_MAX_FAILURES,
+            )
+        )
+    }
+
+    @Test
+    fun watchdogRearmAfterTriggerIsBoundedAndRequiresALiveCheckpoint() {
+        assertTrue(
+            shouldRearmWatchdogAfterTrigger(
+                checkpointValid = true,
+                taskRemovalStopRequested = false,
+                rearmsUsed = 0,
+            )
+        )
+        assertTrue(
+            shouldRearmWatchdogAfterTrigger(
+                checkpointValid = true,
+                taskRemovalStopRequested = false,
+                rearmsUsed = VpnRecoveryWatchdog.TRIGGER_REARM_LIMIT - 1,
+            )
+        )
+        assertFalse(
+            shouldRearmWatchdogAfterTrigger(
+                checkpointValid = true,
+                taskRemovalStopRequested = false,
+                rearmsUsed = VpnRecoveryWatchdog.TRIGGER_REARM_LIMIT,
+            )
+        )
+        assertFalse(
+            shouldRearmWatchdogAfterTrigger(
+                checkpointValid = false,
+                taskRemovalStopRequested = false,
+                rearmsUsed = 0,
+            )
+        )
+        assertFalse(
+            shouldRearmWatchdogAfterTrigger(
+                checkpointValid = true,
+                taskRemovalStopRequested = true,
+                rearmsUsed = 0,
+            )
+        )
+    }
+
+    @Test
     fun watchdogUsesOneMonotonicDeadlineShorterThanAMinute() {
         assertTrue(VpnRecoveryWatchdog.RECOVERY_DEADLINE_MILLIS <= 15_000L)
         assertTrue(

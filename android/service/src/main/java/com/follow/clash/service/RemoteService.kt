@@ -596,6 +596,7 @@ class RemoteService : Service(), CoroutineScope {
     }
 
     private fun startRecoveryWatchdog() {
+        VpnRecoveryWatchdog.noteHealthy()
         VpnRecoveryWatchdog.arm(this)
         if (recoveryWatchdogJob?.isActive == true) return
         recoveryWatchdogJob = launch {
@@ -635,6 +636,37 @@ class RemoteService : Service(), CoroutineScope {
             checkpointValid = recoveryStore.readValid() != null,
             forceNonSticky = forceNonSticky,
         )
+
+    private fun persistRecoveryFailureLocked(
+        generation: Long,
+        nextFailures: Int,
+    ): RecoveryFailurePersist {
+        val latest = recoveryStore.readValid()
+        if (!shouldPersistRecoveryFailure(
+                generation = generation,
+                currentGeneration = recoveryGeneration,
+                taskRemovalStopRequested = TaskRemovalStopStore.isRequested(this),
+                checkpointValid = latest != null,
+                forceNonSticky = forceNonSticky,
+                nextFailures = nextFailures,
+            )
+        ) {
+            val stillOwned =
+                generation == recoveryGeneration &&
+                    !TaskRemovalStopStore.isRequested(this) &&
+                    !forceNonSticky
+            return if (stillOwned && nextFailures >= VPN_RECOVERY_MAX_FAILURES) {
+                RecoveryFailurePersist.EXHAUSTED
+            } else {
+                RecoveryFailurePersist.ABORTED
+            }
+        }
+        if (latest == null) return RecoveryFailurePersist.ABORTED
+        val saved = recoveryStore.save(
+            latest.withFailureCount(nextFailures, System.currentTimeMillis()),
+        )
+        return if (saved) RecoveryFailurePersist.SAVED else RecoveryFailurePersist.EXHAUSTED
+    }
 
     private fun clearRecoveryCheckpoint(reason: String, preventSticky: Boolean = true): Boolean {
         if (preventSticky) forceNonSticky = true
@@ -770,11 +802,21 @@ class RemoteService : Service(), CoroutineScope {
                 RecoveryAttemptResult.SUCCEEDED -> return
                 RecoveryAttemptResult.ABORTED -> return
                 RecoveryAttemptResult.RETRY -> {
-                    failures += 1
-                    val latest = recoveryStore.readValid() ?: break
-                    val next = latest.withFailureCount(failures, System.currentTimeMillis())
-                    if (failures >= VPN_RECOVERY_MAX_FAILURES || !recoveryStore.save(next)) break
-                    delay(RETRY_DELAYS[(failures - 1).coerceAtMost(RETRY_DELAYS.lastIndex)])
+                    val nextFailures = failures + 1
+                    val persisted = runLock.withLock {
+                        persistRecoveryFailureLocked(generation, nextFailures)
+                    }
+                    when (persisted) {
+                        RecoveryFailurePersist.ABORTED -> return
+                        RecoveryFailurePersist.EXHAUSTED -> {
+                            failures = nextFailures
+                            break
+                        }
+                        RecoveryFailurePersist.SAVED -> {
+                            failures = nextFailures
+                            delay(RETRY_DELAYS[(failures - 1).coerceAtMost(RETRY_DELAYS.lastIndex)])
+                        }
+                    }
                 }
             }
         }
@@ -1480,4 +1522,10 @@ private enum class RecoveryAttemptResult {
     SUCCEEDED,
     RETRY,
     ABORTED,
+}
+
+private enum class RecoveryFailurePersist {
+    SAVED,
+    ABORTED,
+    EXHAUSTED,
 }

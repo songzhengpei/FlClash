@@ -7,14 +7,19 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
+import com.follow.clash.common.TaskRemovalStopStore
 
 internal fun nextWatchdogTriggerAt(now: Long, deadlineMillis: Long): Long = now + deadlineMillis
 
 internal object VpnRecoveryWatchdog {
     const val HEARTBEAT_INTERVAL_MILLIS = 10_000L
     internal const val RECOVERY_DEADLINE_MILLIS = 15_000L
+    internal const val TRIGGER_REARM_LIMIT = 3
     private const val REQUEST_CODE_ELAPSED = 0x564E
     internal const val ACTION_RECOVER = "com.follow.clash.service.action.WATCHDOG_RECOVER_VPN"
+
+    @Volatile
+    private var triggerRearmsUsed = 0
 
     private fun pendingIntent(context: Context): PendingIntent =
         PendingIntent.getBroadcast(
@@ -51,11 +56,31 @@ internal object VpnRecoveryWatchdog {
             context.getSystemService(AlarmManager::class.java).cancel(pendingIntent(context))
         }
     }
+
+    fun noteHealthy() {
+        triggerRearmsUsed = 0
+    }
+
+    fun onAlarm(context: Context) {
+        val app = context.applicationContext
+        val checkpointValid = VpnRecoveryStore(app).readValid() != null
+        val taskRemovalStopRequested = TaskRemovalStopStore.isRequested(app)
+        if (!checkpointValid || taskRemovalStopRequested) return
+        if (shouldRearmWatchdogAfterTrigger(
+                checkpointValid = true,
+                taskRemovalStopRequested = false,
+                rearmsUsed = triggerRearmsUsed,
+            )
+        ) {
+            if (arm(app)) triggerRearmsUsed += 1
+        }
+        VpnProcessRecovery.request(app, "watchdog")
+    }
 }
 
 class VpnRecoveryReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != VpnRecoveryWatchdog.ACTION_RECOVER) return
-        VpnProcessRecovery.request(context, "watchdog")
+        VpnRecoveryWatchdog.onAlarm(context)
     }
 }

@@ -31,6 +31,29 @@ internal fun shouldContinueVpnRecovery(
     checkpointValid &&
     !forceNonSticky
 
+internal fun shouldPersistRecoveryFailure(
+    generation: Long,
+    currentGeneration: Long,
+    taskRemovalStopRequested: Boolean,
+    checkpointValid: Boolean,
+    forceNonSticky: Boolean,
+    nextFailures: Int,
+    maxFailures: Int = VPN_RECOVERY_MAX_FAILURES,
+): Boolean = shouldContinueVpnRecovery(
+    generation = generation,
+    currentGeneration = currentGeneration,
+    taskRemovalStopRequested = taskRemovalStopRequested,
+    checkpointValid = checkpointValid,
+    forceNonSticky = forceNonSticky,
+) && nextFailures in 1 until maxFailures
+
+internal fun shouldRearmWatchdogAfterTrigger(
+    checkpointValid: Boolean,
+    taskRemovalStopRequested: Boolean,
+    rearmsUsed: Int,
+    rearmLimit: Int = VpnRecoveryWatchdog.TRIGGER_REARM_LIMIT,
+): Boolean = checkpointValid && !taskRemovalStopRequested && rearmsUsed in 0 until rearmLimit
+
 object VpnProcessRecovery {
     fun request(context: Context, reason: String): Boolean {
         val app = context.applicationContext
