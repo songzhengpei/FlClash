@@ -2,10 +2,7 @@ package com.follow.clash.service
 
 import android.app.AlarmManager
 import android.app.PendingIntent
-import android.app.job.JobInfo
-import android.app.job.JobScheduler
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -16,74 +13,42 @@ internal fun nextWatchdogTriggerAt(now: Long, deadlineMillis: Long): Long = now 
 internal object VpnRecoveryWatchdog {
     const val HEARTBEAT_INTERVAL_MILLIS = 10_000L
     internal const val RECOVERY_DEADLINE_MILLIS = 15_000L
-    internal const val JOB_ID = 0x564E
     private const val REQUEST_CODE_ELAPSED = 0x564E
-    private const val REQUEST_CODE_RTC = 0x564F
     internal const val ACTION_RECOVER = "com.follow.clash.service.action.WATCHDOG_RECOVER_VPN"
 
-    private fun pendingIntent(context: Context, requestCode: Int): PendingIntent =
+    private fun pendingIntent(context: Context): PendingIntent =
         PendingIntent.getBroadcast(
             context,
-            requestCode,
+            REQUEST_CODE_ELAPSED,
             Intent(context, VpnRecoveryReceiver::class.java).setAction(ACTION_RECOVER),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-    private fun scheduleExact(
-        alarmManager: AlarmManager,
-        type: Int,
-        triggerAt: Long,
-        pendingIntent: PendingIntent,
-    ) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()) {
-            alarmManager.setExactAndAllowWhileIdle(type, triggerAt, pendingIntent)
-        } else {
-            alarmManager.setAndAllowWhileIdle(type, triggerAt, pendingIntent)
-        }
-    }
-
-    private fun armAlarms(context: Context): Boolean = runCatching {
+    fun arm(context: Context): Boolean = runCatching {
         val alarmManager = context.getSystemService(AlarmManager::class.java)
-        scheduleExact(
-            alarmManager,
-            AlarmManager.ELAPSED_REALTIME_WAKEUP,
-            nextWatchdogTriggerAt(SystemClock.elapsedRealtime(), RECOVERY_DEADLINE_MILLIS),
-            pendingIntent(context, REQUEST_CODE_ELAPSED),
+        val triggerAt = nextWatchdogTriggerAt(
+            SystemClock.elapsedRealtime(),
+            RECOVERY_DEADLINE_MILLIS,
         )
-        scheduleExact(
-            alarmManager,
-            AlarmManager.RTC_WAKEUP,
-            nextWatchdogTriggerAt(System.currentTimeMillis(), RECOVERY_DEADLINE_MILLIS),
-            pendingIntent(context, REQUEST_CODE_RTC),
-        )
+        val pendingIntent = pendingIntent(context)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()) {
+            alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                triggerAt,
+                pendingIntent,
+            )
+        } else {
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                triggerAt,
+                pendingIntent,
+            )
+        }
     }.isSuccess
-
-    private fun armJob(context: Context): Boolean = runCatching {
-        val scheduler = context.getSystemService(JobScheduler::class.java) ?: return false
-        val job = JobInfo.Builder(
-            JOB_ID,
-            ComponentName(context, VpnRecoveryJobService::class.java),
-        )
-            .setMinimumLatency(RECOVERY_DEADLINE_MILLIS)
-            .setOverrideDeadline(RECOVERY_DEADLINE_MILLIS)
-            .build()
-        scheduler.schedule(job) == JobScheduler.RESULT_SUCCESS
-    }.getOrDefault(false)
-
-    fun arm(context: Context): Boolean {
-        val alarmsArmed = armAlarms(context)
-        val jobArmed = armJob(context)
-        return alarmsArmed || jobArmed
-    }
 
     fun cancel(context: Context) {
         runCatching {
-            val alarmManager = context.getSystemService(AlarmManager::class.java)
-            alarmManager.cancel(pendingIntent(context, REQUEST_CODE_ELAPSED))
-            alarmManager.cancel(pendingIntent(context, REQUEST_CODE_RTC))
-        }
-        runCatching {
-            context.getSystemService(JobScheduler::class.java)?.cancel(JOB_ID)
+            context.getSystemService(AlarmManager::class.java).cancel(pendingIntent(context))
         }
     }
 }

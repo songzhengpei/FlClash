@@ -5,30 +5,44 @@ import android.content.Intent
 import androidx.core.content.ContextCompat
 import com.follow.clash.common.GlobalState
 import com.follow.clash.common.Phase4Mark
-import com.follow.clash.common.TaskRemovalStopStore
 
-internal fun shouldRequestVpnProcessRecovery(
+internal fun shouldDispatchVpnProcessRecovery(checkpointHintValid: Boolean): Boolean =
+    checkpointHintValid
+
+internal fun shouldStopOrphanStartedService(
+    checkpointValid: Boolean,
+    taskRemovalStopRequested: Boolean,
+    recoveryOrSystemRestart: Boolean,
+    sessionKeepsService: Boolean,
+): Boolean {
+    if (taskRemovalStopRequested) return true
+    if (sessionKeepsService) return false
+    return !checkpointValid && recoveryOrSystemRestart
+}
+
+internal fun shouldContinueVpnRecovery(
+    generation: Long,
+    currentGeneration: Long,
     taskRemovalStopRequested: Boolean,
     checkpointValid: Boolean,
-): Boolean = !taskRemovalStopRequested && checkpointValid
+    forceNonSticky: Boolean,
+): Boolean = generation == currentGeneration &&
+    !taskRemovalStopRequested &&
+    checkpointValid &&
+    !forceNonSticky
 
 object VpnProcessRecovery {
     fun request(context: Context, reason: String): Boolean {
         val app = context.applicationContext
-        val checkpoint = VpnRecoveryStore(app).readValid()
-        if (checkpoint != null && TaskRemovalExitGuard.applyIfNeeded(app, checkpoint)) {
+        // Read-only hint. A stale empty cache only skips this fast path;
+        // the remote watchdog stays armed. Never cancel or write here.
+        if (!shouldDispatchVpnProcessRecovery(VpnRecoveryStore(app).peekValid() != null)) {
+            Phase4Mark.emit(
+                "vpn_process_recovery_request",
+                mapOf("reason" to reason, "dispatched" to false),
+            )
             return false
         }
-        val checkpointValid = checkpoint != null
-        val taskRemovalStopRequested = TaskRemovalStopStore.isRequested(app)
-        if (!shouldRequestVpnProcessRecovery(taskRemovalStopRequested, checkpointValid)) {
-            VpnRecoveryWatchdog.cancel(app)
-            return false
-        }
-
-        // Re-arm first so another death during this dispatch still has a
-        // durable wake-up. Starting VpnService is what actually rebuilds TUN.
-        VpnRecoveryWatchdog.arm(app)
         val dispatched = startVpnService(app)
         Phase4Mark.emit(
             "vpn_process_recovery_request",

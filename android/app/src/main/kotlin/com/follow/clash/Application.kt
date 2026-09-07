@@ -17,8 +17,8 @@ class Application : Application() {
     override fun onCreate() {
         super.onCreate()
         // The UI process can come back in ~1s via SystemUI TileService after a
-        // vendor low-memory kill. Kick recovery here so we do not wait for the
-        // 15s watchdog / job path that OEMs may delay.
+        // vendor low-memory kill. Only request recovery here; :remote decides
+        // whether the checkpoint still allows it.
         if (!isRemoteProcess()) {
             VpnProcessRecovery.request(this, "application")
         }

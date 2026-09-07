@@ -116,6 +116,8 @@ class RemoteService : Service(), CoroutineScope {
     @Volatile private var forceNonSticky = false
     private var recoveryJob: Job? = null
     private var recoveryWatchdogJob: Job? = null
+    private var recoveryGeneration = 0L
+    private var activeRecoveryGeneration = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -268,6 +270,10 @@ class RemoteService : Service(), CoroutineScope {
 
     private suspend fun completePendingRecoveryLocked(action: SmartPauseAction): Boolean? {
         val checkpoint = pendingRecovery ?: return null
+        if (!recoveryStillValidLocked(activeRecoveryGeneration)) {
+            cleanupRecoveryAttemptLocked("VPN recovery was invalidated")
+            return false
+        }
         val starting = State.snapshot
         val next = when (action) {
             SmartPauseAction.PAUSE -> {
@@ -290,6 +296,10 @@ class RemoteService : Service(), CoroutineScope {
             SmartPauseAction.NO_ACTION,
             SmartPauseAction.RETRY,
             -> return null
+        }
+        if (!recoveryStillValidLocked(activeRecoveryGeneration)) {
+            cleanupRecoveryAttemptLocked("VPN recovery was invalidated")
+            return false
         }
         if (!persistCheckpoint(next, next.state, checkpoint.options, checkpoint.setup)) {
             return false
@@ -609,8 +619,26 @@ class RemoteService : Service(), CoroutineScope {
         VpnRecoveryWatchdog.cancel(this)
     }
 
+    private fun invalidateQueuedRecovery() {
+        recoveryGeneration += 1L
+        activeRecoveryGeneration = 0L
+        recoveryJob?.cancel()
+        recoveryJob = null
+        pendingRecovery = null
+    }
+
+    private fun recoveryStillValidLocked(generation: Long): Boolean =
+        shouldContinueVpnRecovery(
+            generation = generation,
+            currentGeneration = recoveryGeneration,
+            taskRemovalStopRequested = TaskRemovalStopStore.isRequested(this),
+            checkpointValid = recoveryStore.readValid() != null,
+            forceNonSticky = forceNonSticky,
+        )
+
     private fun clearRecoveryCheckpoint(reason: String, preventSticky: Boolean = true): Boolean {
         if (preventSticky) forceNonSticky = true
+        invalidateQueuedRecovery()
         stopRecoveryWatchdog()
         val cleared = recoveryStore.clear()
         Phase4Mark.emit(
@@ -665,6 +693,7 @@ class RemoteService : Service(), CoroutineScope {
 
     private suspend fun attemptCheckpointRecoveryLocked(
         checkpoint: VpnRecoveryCheckpoint,
+        generation: Long,
     ): Boolean {
         if (State.snapshot.state != SessionState.STOPPED) return true
         if (android.net.VpnService.prepare(this) != null) {
@@ -696,6 +725,7 @@ class RemoteService : Service(), CoroutineScope {
             PhysicalNetworkUpdateReason.PROCESS_RECOVERY,
         )
         pendingRecovery = checkpoint
+        activeRecoveryGeneration = generation
         val reconciled = reconcileSmartPauseStateLocked(
             PhysicalNetworkUpdateReason.PROCESS_RECOVERY.name,
         )
@@ -710,28 +740,46 @@ class RemoteService : Service(), CoroutineScope {
     }
 
     private suspend fun recoverFromCheckpoint(initial: VpnRecoveryCheckpoint) {
-        var checkpoint = initial
+        val generation = recoveryGeneration
         var failures = initial.recoveryFailures
+        var checkpointState = initial.state
         while (failures < VPN_RECOVERY_MAX_FAILURES) {
-            val success = runLock.withLock {
-                attemptCheckpointRecoveryLocked(checkpoint)
+            val attempt = runLock.withLock {
+                if (!recoveryStillValidLocked(generation)) {
+                    RecoveryAttemptResult.ABORTED
+                } else {
+                    val checkpoint = recoveryStore.readValid()
+                        ?: return@withLock RecoveryAttemptResult.ABORTED
+                    checkpointState = checkpoint.state
+                    if (attemptCheckpointRecoveryLocked(checkpoint, generation)) {
+                        RecoveryAttemptResult.SUCCEEDED
+                    } else {
+                        RecoveryAttemptResult.RETRY
+                    }
+                }
             }
             Phase4Mark.emit(
                 "vpn_process_recovery",
                 mapOf(
                     "attempt" to (failures + 1),
-                    "result" to success,
-                    "checkpoint_state" to checkpoint.state,
+                    "result" to attempt.name.lowercase(),
+                    "checkpoint_state" to checkpointState,
                 ),
             )
-            if (success) return
-
-            failures += 1
-            checkpoint = checkpoint.withFailureCount(failures, System.currentTimeMillis())
-            if (failures >= VPN_RECOVERY_MAX_FAILURES || !recoveryStore.save(checkpoint)) break
-            delay(RETRY_DELAYS[(failures - 1).coerceAtMost(RETRY_DELAYS.lastIndex)])
+            when (attempt) {
+                RecoveryAttemptResult.SUCCEEDED -> return
+                RecoveryAttemptResult.ABORTED -> return
+                RecoveryAttemptResult.RETRY -> {
+                    failures += 1
+                    val latest = recoveryStore.readValid() ?: break
+                    val next = latest.withFailureCount(failures, System.currentTimeMillis())
+                    if (failures >= VPN_RECOVERY_MAX_FAILURES || !recoveryStore.save(next)) break
+                    delay(RETRY_DELAYS[(failures - 1).coerceAtMost(RETRY_DELAYS.lastIndex)])
+                }
+            }
         }
         runLock.withLock {
+            if (!recoveryStillValidLocked(generation)) return@withLock
             clearRecoveryCheckpoint("recovery_exhausted")
             applySession(
                 SessionSnapshot.stopped(
@@ -1320,8 +1368,19 @@ class RemoteService : Service(), CoroutineScope {
             return START_NOT_STICKY
         }
         val checkpoint = recoveryStore.readValid()
+        val recoveryOrSystemRestart =
+            intent == null || intent.action == ACTION_RECOVER_FROM_VPN_SERVICE
+        if (shouldStopOrphanStartedService(
+                checkpointValid = checkpoint != null,
+                taskRemovalStopRequested = false,
+                recoveryOrSystemRestart = recoveryOrSystemRestart,
+                sessionKeepsService = SessionState.keepsRemoteService(State.snapshot.state),
+            )
+        ) {
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
         if (checkpoint == null) {
-            if (intent == null) stopSelfResult(startId)
             return START_NOT_STICKY
         }
         if (shouldStartStickyRecovery(
@@ -1415,4 +1474,10 @@ class RemoteService : Service(), CoroutineScope {
         private const val KEY_CLOSE_CONNECTIONS = "close_connections"
         private val RETRY_DELAYS = longArrayOf(500L, 1_500L, 3_000L)
     }
+}
+
+private enum class RecoveryAttemptResult {
+    SUCCEEDED,
+    RETRY,
+    ABORTED,
 }

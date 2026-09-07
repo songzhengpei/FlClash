@@ -85,17 +85,32 @@ class VpnService : SystemVpnService(), IBaseService, CoroutineScope {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (TaskRemovalStopStore.isRequested(this)) {
+        val taskRemovalStopRequested = TaskRemovalStopStore.isRequested(this)
+        if (taskRemovalStopRequested) {
             VpnRecoveryStore(this).clear()
+        }
+        val checkpoint = if (taskRemovalStopRequested) {
+            null
+        } else {
+            VpnRecoveryStore(this).readValid()
+        }
+        val recoveryOrSystemRestart =
+            intent == null || intent.action == VpnRecoveryWatchdog.ACTION_RECOVER
+        if (shouldStopOrphanStartedService(
+                checkpointValid = checkpoint != null,
+                taskRemovalStopRequested = taskRemovalStopRequested,
+                recoveryOrSystemRestart = recoveryOrSystemRestart,
+                sessionKeepsService = tunEstablished ||
+                    SessionState.keepsRemoteService(State.snapshot.state),
+            )
+        ) {
             stopSelfResult(startId)
             return START_NOT_STICKY
         }
-        val checkpoint = VpnRecoveryStore(this).readValid()
         if (checkpoint == null) {
             // A bound VpnService can be promoted to a started service only after
             // the session checkpoint commits. Do not retain a failed or
             // explicitly stopped session merely because onStartCommand ran.
-            if (intent == null) stopSelfResult(startId)
             return START_NOT_STICKY
         }
 

@@ -204,12 +204,17 @@ internal class VpnRecoveryStore(context: Context) {
             appContext.packageManager.getPackageInfo(appContext.packageName, 0).lastUpdateTime
         }.getOrDefault(0L)
 
-    fun readValid(): VpnRecoveryCheckpoint? {
+    fun peekValid(): VpnRecoveryCheckpoint? {
         val raw = preferences.getString(KEY_CHECKPOINT, null) ?: return null
-        val checkpoint = VpnRecoveryCheckpointCodec.decode(raw)
-        if (checkpoint == null || !isCheckpointCompatible(checkpoint, installEpoch)) {
+        val checkpoint = VpnRecoveryCheckpointCodec.decode(raw) ?: return null
+        if (!isCheckpointCompatible(checkpoint, installEpoch)) return null
+        return checkpoint
+    }
+
+    fun readValid(): VpnRecoveryCheckpoint? {
+        val checkpoint = peekValid()
+        if (checkpoint == null && preferences.contains(KEY_CHECKPOINT)) {
             clear()
-            return null
         }
         return checkpoint
     }

@@ -41,11 +41,6 @@
             android:exported="false"
             android:process=":remote" />
 
-        <service
-            android:name=".VpnRecoveryJobService"
-            android:exported="false"
-            android:permission="android.permission.BIND_JOB_SERVICE" />
-
         <provider
             android:name=".FilesProvider"
             android:authorities="${applicationId}.files"
