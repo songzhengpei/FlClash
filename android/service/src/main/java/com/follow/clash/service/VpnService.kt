@@ -150,11 +150,10 @@ class VpnService : SystemVpnService(), IBaseService, CoroutineScope {
         runBlocking {
             withTimeoutOrNull(2_000L) {
                 lifecycleMutex.withLock {
-                    if (!shutdownComplete) cleanupLocked(stopService = false)
+                    if (!shutdownComplete) cleanupLocked(stopService = false, stopListeners = false)
                 }
             }
         }
-        Core.stopTun()
         serviceJob.cancel()
         handleDestroy()
         super.onDestroy()
@@ -168,10 +167,10 @@ class VpnService : SystemVpnService(), IBaseService, CoroutineScope {
         val revokedSessionId = State.snapshot.sessionId
         VpnRecoveryStore(this).clear()
         GlobalState.launch {
-            shutdown("vpn_revoked")
             var stoppedRevokedSession = false
             State.runLock.withLock {
                 if (shouldStopRevokedSession(revokedSessionId, State.snapshot)) {
+                    shutdown("vpn_revoked")
                     State.snapshot = SessionSnapshot.stopped(
                         ServiceErrorCode.VPN_REVOKED,
                         "VPN ownership was revoked by Android",
@@ -454,6 +453,7 @@ class VpnService : SystemVpnService(), IBaseService, CoroutineScope {
             loader.load()
             val options = State.options
                 ?: throw IllegalStateException("VPN options is null")
+            check(setCoreListeners(true)) { "Core listeners did not start" }
             handleStart(options)
             ServiceOperationResult.success()
         } catch (e: ServiceStartException) {
@@ -489,9 +489,10 @@ class VpnService : SystemVpnService(), IBaseService, CoroutineScope {
             // creating TUN. Keep notification/suspend modules alive while
             // confirming that the runtime is already physically paused.
             loader.load()
-            return@withLock true
+            return@withLock setCoreListeners(false)
         }
         if (!tunEstablished) return@withLock false
+        if (!setCoreListeners(false)) return@withLock false
         clearResolverCache()
         Core.stopTun()
         tunEstablished = false
@@ -513,6 +514,7 @@ class VpnService : SystemVpnService(), IBaseService, CoroutineScope {
                 // A checkpoint can restore PAUSED without ever calling start().
                 // Load the runtime modules before recreating TUN in that path.
                 loader.load()
+                check(setCoreListeners(true)) { "Core listeners did not resume" }
                 handleStart(it)
                 Phase4Mark.emit(
                     "vpn_tun_observed",
@@ -521,6 +523,9 @@ class VpnService : SystemVpnService(), IBaseService, CoroutineScope {
                 true
             } ?: false
         } catch (e: Exception) {
+            Core.stopTun()
+            tunEstablished = false
+            setCoreListeners(false)
             GlobalState.log("VpnService smartResume failed: ${e.message}")
             Phase4Mark.emit(
                 "vpn_tun_observed",
@@ -546,7 +551,7 @@ class VpnService : SystemVpnService(), IBaseService, CoroutineScope {
         }
     }
 
-    private suspend fun cleanupLocked(stopService: Boolean) {
+    private suspend fun cleanupLocked(stopService: Boolean, stopListeners: Boolean = true) {
         Phase4Mark.emit("vpn_tun_observed", mapOf("phase" to "stop_begin"))
         tunEstablished = false
         Core.stopTun()
@@ -554,6 +559,9 @@ class VpnService : SystemVpnService(), IBaseService, CoroutineScope {
             "vpn_tun_observed",
             mapOf("phase" to "stop_complete", "tun_present" to false),
         )
+        // onDestroy has a main-thread deadline. The remote disconnect handler
+        // cleans listeners under the session lock after checking delegate identity.
+        if (stopListeners) check(setCoreListeners(false)) { "Core listeners did not stop" }
         loader.unload()
         clearResolverCache()
         shutdownComplete = true

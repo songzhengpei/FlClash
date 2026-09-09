@@ -46,7 +46,13 @@ class GlobalState {
   VpnState? lastVpnState;
   bool isAttach = false;
 
-  GlobalState._internal();
+  final Future<void> Function()? _initializeOverride;
+
+  GlobalState._internal() : _initializeOverride = null;
+
+  @visibleForTesting
+  GlobalState.test(Future<void> Function() initialize)
+      : _initializeOverride = initialize;
 
   factory GlobalState() {
     _instance ??= GlobalState._internal();
@@ -372,12 +378,22 @@ class GlobalState {
     launchUrl(Uri.parse(url));
   }
 
+  Future<void>? _attachFuture;
+
   Future<void> attach() async {
     if (isAttach == true) {
       return;
     }
-    await _initApp();
-    isAttach = true;
+    final running = _attachFuture;
+    if (running != null) return running;
+    final future = (_initializeOverride ?? _initApp)();
+    _attachFuture = future;
+    try {
+      await future;
+      isAttach = true;
+    } finally {
+      _attachFuture = null;
+    }
   }
 
   Future<void> _initApp() async {

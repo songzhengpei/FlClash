@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'package:fl_clash/services/mihomo_config/structural_config_diff.dart';
 import 'package:yaml/yaml.dart';
@@ -125,10 +126,13 @@ Future<MihomoSnapshotParts> loadMihomoSnapshotParts({
       normalizeSnapshot,
 }) async {
   final snapshot = await loadSnapshot();
-  final source = parseMihomoSourceConfig(utf8.decode(snapshot));
+  final source = await _parseSnapshotInBackground(snapshot);
   final normalized = await normalizeSnapshot(snapshot);
   return (source: source, normalized: normalized);
 }
+
+Future<MihomoConfigMap> _parseSnapshotInBackground(List<int> snapshot) =>
+    Isolate.run(() => parseMihomoSourceConfig(utf8.decode(snapshot)));
 
 /// Resolves the non-Script runtime base from ONE profile snapshot so the
 /// generic source parse and the Mihomo normalization always consume the same

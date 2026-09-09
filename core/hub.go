@@ -56,6 +56,10 @@ type providerCacheVersion struct {
 func handleInitClash(paramsString string) bool {
 	runLock.Lock()
 	defer runLock.Unlock()
+	return initClashLocked(paramsString)
+}
+
+func initClashLocked(paramsString string) bool {
 	var params = InitParams{}
 	err := json.Unmarshal([]byte(paramsString), &params)
 	if err != nil {
@@ -81,11 +85,14 @@ func handleStopListener() bool {
 	defer runLock.Unlock()
 	isRunning = false
 	stopListeners()
+	closeConnections()
 	resolver.ResetConnection()
 	return true
 }
 
 func handleGetIsInit() bool {
+	runLock.Lock()
+	defer runLock.Unlock()
 	return isInit
 }
 
@@ -98,9 +105,12 @@ func handleForceGC() {
 }
 
 func handleShutdown() bool {
+	runLock.Lock()
+	defer runLock.Unlock()
+	isRunning = false
 	stopListeners()
 	executor.Shutdown()
-	invalidateProxiesCache()
+	invalidateProxiesCacheLocked()
 	handleForceGC()
 	isInit = false
 	return true
@@ -725,6 +735,13 @@ func handleDelFileWithStat(
 }
 
 func handleSetupConfig(bytes []byte) string {
+	runLock.Lock()
+	defer releaseUnusedOSMemory()
+	defer runLock.Unlock()
+	return setupConfigLocked(bytes)
+}
+
+func setupConfigLocked(bytes []byte) string {
 	if !isInit {
 		return "not initialized"
 	}
@@ -732,10 +749,10 @@ func handleSetupConfig(bytes []byte) string {
 	err := UnmarshalJson(bytes, params)
 	if err != nil {
 		logError("unmarshalRawConfig error %v", err)
-		_ = applyConfig(defaultSetupParams())
+		_ = applyConfigLocked(defaultSetupParams())
 		return err.Error()
 	}
-	err = applyConfig(params)
+	err = applyConfigLocked(params)
 	if err != nil {
 		return err.Error()
 	}
@@ -858,4 +875,16 @@ func handleNormalizeProviderContent(encoded string) ([]map[string]any, error) {
 		return nil, errors.New("provider content has no proxy nodes")
 	}
 	return schema.Proxies, nil
+}
+
+// Quick setup and listener lifecycle share one lock. Setup does not express a
+// start intent: only the native session owner may open listeners afterwards.
+func handleQuickSetup(initParams, setupParams string) string {
+	runLock.Lock()
+	defer releaseUnusedOSMemory()
+	defer runLock.Unlock()
+	if !initClashLocked(initParams) {
+		return "init failed"
+	}
+	return setupConfigLocked([]byte(setupParams))
 }

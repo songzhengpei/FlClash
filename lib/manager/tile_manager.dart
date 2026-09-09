@@ -40,12 +40,6 @@ class _TileContainerState extends ConsumerState<TileManager> with TileListener {
 
   @override
   Future<void> onStop() async {
-    if (!shouldHandleTileFullStop(
-      isStart: isStart,
-      isSmartStopped: isSmartStopped,
-    )) {
-      return;
-    }
     await ref.read(setupActionProvider.notifier).updateStatus(false);
     if (!isStart && !isSmartStopped) {
       await app?.tip(currentAppLocalizations.stopVpn);

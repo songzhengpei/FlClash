@@ -100,9 +100,16 @@ class _ProxiesViewState extends ConsumerState<ProxiesView> {
         return state.copyWith(type: ProxiesType.list);
       });
 
-      await ref
-          .read(proxiesActionProvider.notifier)
-          .hydrateProxyGroupsSnapshot();
+      // A mounted page must not replace current runtime groups with an older
+      // disk snapshot (or decode that snapshot again on every page entry).
+      if (ref.read(groupsProvider).isEmpty ||
+          ref.read(groupsOwnerProfileIdProvider) !=
+              ref.read(currentProfileIdProvider)) {
+        await ref
+            .read(proxiesActionProvider.notifier)
+            .hydrateProxyGroupsSnapshot();
+      }
+      if (!mounted) return;
 
       final ownerProfileId = ref.read(groupsOwnerProfileIdProvider);
       final currentProfileId = ref.read(currentProfileIdProvider);

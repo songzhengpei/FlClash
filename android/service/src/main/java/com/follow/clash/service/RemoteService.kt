@@ -37,6 +37,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
@@ -369,7 +372,7 @@ class RemoteService : Service(), CoroutineScope {
         unknownRetrySchedule.reset()
     }
 
-    private fun maybeCloseConnectionsForHandover(
+    private suspend fun maybeCloseConnectionsForHandover(
         network: PhysicalNetworkSnapshot?, config: SmartPauseConfig, session: SessionSnapshot,
     ) {
         val networkId = network?.takeIf { it.isKnown }?.networkId ?: return
@@ -382,13 +385,11 @@ class RemoteService : Service(), CoroutineScope {
             "network_handover_close_connections",
             mapOf("network_generation" to network.generation, "network_type" to network.transport),
         )
-        val action = "{\"id\":\"native-network-${network.generation}\",\"method\":\"closeConnections\",\"data\":null}"
-        Core.invokeAction(action) { result ->
-            Phase4Mark.emit(
-                "network_handover_close_connections_complete",
-                mapOf("result" to (result != null)),
-            )
-        }
+        val closed = coreLifecycleAction("closeConnections")
+        Phase4Mark.emit(
+            "network_handover_close_connections_complete",
+            mapOf("result" to closed),
+        )
     }
 
     private suspend fun transitionSmartPauseLocked(
@@ -464,6 +465,7 @@ class RemoteService : Service(), CoroutineScope {
                 }.getOrNull() == true
                 if (!rolledBack) {
                     clearRecoveryCheckpoint("smart_pause_checkpoint_rollback_failed")
+                    stopActiveSessionLocked()
                 }
                 success = false
             } else {
@@ -703,9 +705,9 @@ class RemoteService : Service(), CoroutineScope {
     }
 
     private suspend fun quickSetupAwait(payload: QuickSetupPayload): ServiceOperationResult =
-        suspendCancellableCoroutine { continuation ->
-            Core.quickSetup(payload.initParamsJson, payload.setupParamsJson) { message ->
-                if (continuation.isActive) {
+        withContext(NonCancellable) {
+            suspendCoroutine { continuation ->
+                Core.quickSetup(payload.initParamsJson, payload.setupParamsJson) { message ->
                     continuation.resume(quickSetupOperationResult(message))
                 }
             }
@@ -734,6 +736,7 @@ class RemoteService : Service(), CoroutineScope {
         }
 
         val setupResult = quickSetupAwait(checkpoint.setup)
+        if (!recoveryStillValidLocked(generation)) return false
         if (!setupResult.success) {
             GlobalState.log("VPN recovery quick setup failed: ${setupResult.message}")
             return false
@@ -870,7 +873,10 @@ class RemoteService : Service(), CoroutineScope {
             .onFailure { GlobalState.log("Operation result callback failed: ${it.message}") }
     }
 
+    private val lifecycleIntent = AtomicLong(0)
+
     private fun handleStopService(result: IOperationResultInterface) {
+        val intent = lifecycleIntent.incrementAndGet()
         resetAllPolicyRetries()
         clearRecoveryCheckpoint("explicit_stop")
         Phase4Mark.emit(
@@ -879,6 +885,10 @@ class RemoteService : Service(), CoroutineScope {
         )
         launch {
             runLock.withLock {
+                if (intent != lifecycleIntent.get()) {
+                    replyOperation(result, ServiceOperationResult.failure(ServiceErrorCode.INTERNAL_ERROR, "Superseded stop"))
+                    return@withLock
+                }
                 // Recovery may have completed after the binder thread's first
                 // clear but before this lifecycle lock was acquired. Clear the
                 // intent again at the serialized stop commit point.
@@ -892,6 +902,10 @@ class RemoteService : Service(), CoroutineScope {
     private suspend fun stopActiveSessionLocked(): ServiceOperationResult {
         val current = State.snapshot
         if (current.state == SessionState.STOPPED) {
+            if (!setCoreListeners(false)) return ServiceOperationResult.failure(
+                ServiceErrorCode.INTERNAL_ERROR, "Core listener cleanup failed",
+            )
+            coreLifecycleAction("resetTraffic")
             clearDelegate()
             applySession(SessionSnapshot.stopped())
             return ServiceOperationResult.success()
@@ -903,6 +917,10 @@ class RemoteService : Service(), CoroutineScope {
             ServiceErrorCode.SERVICE_DISCONNECTED,
             "Background service is unavailable during stop",
         )
+        if (stopResult.success) {
+            coreLifecycleAction("resetTraffic")
+            coreLifecycleAction("forceGc")
+        }
         val resolution = cleanupResolution(State.snapshot, stopResult)
         if (resolution.clearDelegate) clearDelegate()
         applySession(resolution.snapshot)
@@ -910,6 +928,7 @@ class RemoteService : Service(), CoroutineScope {
     }
 
     private fun requestTaskRemovalStop() {
+        lifecycleIntent.incrementAndGet()
         resetAllPolicyRetries()
         TaskRemovalStopStore.mark(this)
         // These commits are synchronous so a vendor task cleaner cannot race
@@ -943,6 +962,7 @@ class RemoteService : Service(), CoroutineScope {
                 // not overwrite the replacement session that is now RUNNING.
                 if (!isCurrentDelegateGeneration(generation, delegateGeneration)) return@withLock
                 clearRecoveryCheckpoint("physical_service_disconnected")
+                setCoreListeners(false)
                 clearDelegate()
                 // The bound physical service is gone and this delegate does
                 // not reconnect automatically. STOPPING would therefore be a
@@ -957,6 +977,7 @@ class RemoteService : Service(), CoroutineScope {
         runTime: Long,
         result: IOperationResultInterface,
     ) {
+        val intent = lifecycleIntent.incrementAndGet()
         if (TaskRemovalStopStore.isRequested(this)) {
             replyOperation(
                 result,
@@ -974,6 +995,10 @@ class RemoteService : Service(), CoroutineScope {
         )
         launch {
             runLock.withLock {
+                if (intent != lifecycleIntent.get()) {
+                    replyOperation(result, ServiceOperationResult.failure(ServiceErrorCode.INTERNAL_ERROR, "Superseded start"))
+                    return@withLock
+                }
                 var current = State.snapshot
                 if (current.state == SessionState.RUNNING) {
                     val operational = delegate?.useService { service ->
@@ -1156,25 +1181,20 @@ class RemoteService : Service(), CoroutineScope {
             setupParamsString: String,
             result: IOperationResultInterface,
         ) {
-            Core.quickSetup(initParamsString, setupParamsString) {
-                launch {
-                    runLock.withLock {
-                        val operationResult = quickSetupOperationResult(it)
-                        if (!operationResult.success) {
-                            applySession(
-                                SessionSnapshot.stopped(
-                                operationResult.errorCode,
-                                operationResult.message,
-                                )
-                            )
-                        } else {
-                            activeSetupPayload = QuickSetupPayload(
-                                initParamsJson = initParamsString,
-                                setupParamsJson = setupParamsString,
-                            )
-                        }
-                        replyOperation(result, operationResult)
+            val intent = lifecycleIntent.get()
+            launch {
+                runLock.withLock {
+                    if (intent != lifecycleIntent.get() || State.snapshot.state != SessionState.STOPPED) {
+                        replyOperation(result, ServiceOperationResult.failure(
+                            ServiceErrorCode.INTERNAL_ERROR, "Setup superseded or session already active",
+                        ))
+                        return@withLock
                     }
+                    val payload = QuickSetupPayload(initParamsString, setupParamsString)
+                    val operationResult = quickSetupAwait(payload)
+                    if (operationResult.success) activeSetupPayload = payload
+                    // A setup error is not evidence that the physical VPN stopped.
+                    replyOperation(result, operationResult)
                 }
             }
         }
@@ -1249,6 +1269,7 @@ class RemoteService : Service(), CoroutineScope {
         }
 
         override fun smartStop(result: IResultInterface) {
+            val intent = lifecycleIntent.incrementAndGet()
             resetAllPolicyRetries()
             Phase4Mark.emit(
                 "smart_stop_begin",
@@ -1256,6 +1277,10 @@ class RemoteService : Service(), CoroutineScope {
             )
             launch {
                 runLock.withLock {
+                    if (intent != lifecycleIntent.get()) {
+                        result.onResult(0)
+                        return@withLock
+                    }
                     // Already stopped — return success (idempotent)
                     val current = State.snapshot
                     if (current.state == SessionState.PAUSED) {
@@ -1293,6 +1318,7 @@ class RemoteService : Service(), CoroutineScope {
         }
 
         override fun smartResume(result: IResultInterface) {
+            val intent = lifecycleIntent.incrementAndGet()
             resetAllPolicyRetries()
             Phase4Mark.emit(
                 "smart_resume_begin",
@@ -1300,6 +1326,10 @@ class RemoteService : Service(), CoroutineScope {
             )
             launch {
                 runLock.withLock {
+                    if (intent != lifecycleIntent.get()) {
+                        result.onResult(0)
+                        return@withLock
+                    }
                     // Only a physically operational RUNNING session is
                     // idempotent. A stale snapshot must not confirm resume.
                     val current = State.snapshot

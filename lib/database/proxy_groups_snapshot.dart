@@ -26,25 +26,51 @@ class ProxyGroupsSnapshotsDao extends DatabaseAccessor<Database>
     with _$ProxyGroupsSnapshotsDaoMixin {
   ProxyGroupsSnapshotsDao(super.attachedDatabase);
 
-  Future<RawProxyGroupsSnapshot?> getSnapshot(int profileId) {
-    return (select(
-      proxyGroupsSnapshots,
-    )..where((t) => t.profileId.equals(profileId))).getSingleOrNull();
+  Future<RawProxyGroupsSnapshot?> getSnapshot(int profileId) async {
+    // Drift converters run on the caller isolate, even with a background DB.
+    final row = await customSelect(
+      'SELECT * FROM proxy_groups_snapshots WHERE profile_id = ?',
+      variables: [Variable.withInt(profileId)],
+      readsFrom: {proxyGroupsSnapshots},
+    ).getSingleOrNull();
+    if (row == null) return null;
+    final encoded = row.read<String>('groups');
+    final groups = await Isolate.run(
+      () => const GroupsConverter().fromSql(encoded),
+    );
+    return RawProxyGroupsSnapshot(
+      profileId: row.read<int>('profile_id'),
+      groups: groups,
+      profileFingerprint: row.readNullable<String>('profile_fingerprint'),
+      snapshotVersion: row.read<int>('snapshot_version'),
+      updatedAt: row.read<DateTime>('updated_at'),
+    );
   }
 
   Future<void> putSnapshot({
     required int profileId,
     required List<Group> groups,
     String? profileFingerprint,
-  }) {
-    return into(proxyGroupsSnapshots).insertOnConflictUpdate(
-      ProxyGroupsSnapshotsCompanion.insert(
-        profileId: Value(profileId),
-        groups: groups,
-        profileFingerprint: Value(profileFingerprint),
-        snapshotVersion: const Value(kProxyGroupsSnapshotVersion),
-        updatedAt: DateTime.now(),
-      ),
+  }) async {
+    final encoded = await Isolate.run(
+      () => const GroupsConverter().toSql(groups),
+    );
+    await customInsert(
+      'INSERT INTO proxy_groups_snapshots '
+      '(profile_id, groups, profile_fingerprint, snapshot_version, updated_at) '
+      'VALUES (?, ?, ?, ?, ?) ON CONFLICT(profile_id) DO UPDATE SET '
+      'groups = excluded.groups, '
+      'profile_fingerprint = excluded.profile_fingerprint, '
+      'snapshot_version = excluded.snapshot_version, '
+      'updated_at = excluded.updated_at',
+      variables: [
+        Variable.withInt(profileId),
+        Variable.withString(encoded),
+        Variable<String>(profileFingerprint),
+        Variable.withInt(kProxyGroupsSnapshotVersion),
+        Variable.withDateTime(DateTime.now()),
+      ],
+      updates: {proxyGroupsSnapshots},
     );
   }
 

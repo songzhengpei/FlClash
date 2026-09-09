@@ -319,6 +319,14 @@ class SmartAutoStopManager extends _$SmartAutoStopManager {
     );
     final setupAction = ref.read(setupActionProvider.notifier);
     final s = service;
+    if (system.isAndroid && s != null) {
+      try {
+        await s.smartStop();
+      } finally {
+        await setupAction.reconcileNativeSession();
+      }
+      return;
+    }
     if (s != null) {
       try {
         final success = await convergeConfirmedSmartStop(
@@ -361,6 +369,14 @@ class SmartAutoStopManager extends _$SmartAutoStopManager {
     );
     final setupAction = ref.read(setupActionProvider.notifier);
     final s = service;
+    if (system.isAndroid) {
+      try {
+        await s?.smartResume();
+      } finally {
+        await setupAction.reconcileNativeSession();
+      }
+      return;
+    }
     if (s != null) {
       try {
         final success = await convergeConfirmedSmartResume(

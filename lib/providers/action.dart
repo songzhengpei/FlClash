@@ -15,6 +15,7 @@ import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/plugins/app.dart';
 import 'package:fl_clash/plugins/service.dart';
 import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/services/lifecycle_intent.dart';
 import 'package:fl_clash/services/backup/restore_service.dart';
 import 'package:fl_clash/services/backup/backup_file_guard.dart';
 import 'package:fl_clash/services/backup/unified_backup_service.dart';
@@ -30,6 +31,7 @@ import 'package:fl_clash/widgets/dialog.dart';
 import 'package:fl_clash/widgets/input.dart';
 import 'package:fl_clash/widgets/surge/surge.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -329,12 +331,14 @@ bool hasExternalProviderDefinitions(ClashConfig config) {
   return (external: proxy || rule, proxy: proxy);
 }
 
+String _profileBytesFingerprint(Uint8List bytes) => sha256.convert(bytes).toString();
+
 Future<({bool external, bool proxy})> readProfileProviderDefinitions(
   int profileId,
 ) async {
   final profilePath = await appPath.getProfilePath(profileId.toString());
   final source = await File(profilePath).readAsString();
-  return parseProfileProviderDefinitions(source);
+  return compute(parseProfileProviderDefinitions, source);
 }
 
 @Riverpod(keepAlive: true)
@@ -872,6 +876,7 @@ class SetupAction extends _$SetupAction {
       );
       StartupTrace.mark('startListener');
       if (!started) {
+        if (system.isAndroid) return false;
         startTime = null;
         ref.read(runTimeProvider.notifier).value = null;
         ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
@@ -895,6 +900,8 @@ class SetupAction extends _$SetupAction {
     }
     if (_isUpdatingUiStats) return;
     _isUpdatingUiStats = true;
+    final statsIntent = _lifecycle.generation;
+    final statsStartTime = startTime;
     try {
       final now = DateTime.now();
 
@@ -905,6 +912,10 @@ class SetupAction extends _$SetupAction {
       final snapshot = await coreController.getTrafficSnapshot(
         onlyStatisticsProxy,
       );
+      if (!_lifecycle.isCurrent(statsIntent) ||
+          startTime != statsStartTime || !_shouldUiStatsTimerRun) {
+        return;
+      }
       StartupTrace.mark(
         'ui_stats_traffic_snapshot',
         extras: {'page': ref.read(currentPageLabelProvider).name},
@@ -1006,21 +1017,29 @@ class SetupAction extends _$SetupAction {
     reconcileUiStatsTimerIfNeeded();
   }
 
-  Future _updateStartTime() async {
+  int _snapshotRead = 0;
+  final _lifecycle = LifecycleIntent();
+
+  int get lifecycleGeneration => _lifecycle.generation;
+  bool isCurrentLifecycle(int generation) => _lifecycle.isCurrent(generation);
+
+  Future<bool> _updateStartTime() async {
+    final read = ++_snapshotRead;
+    final intent = _lifecycle.generation;
     StartupTrace.mark('vpn_flutter_sync_begin', extras: {'source': 'app_init'});
     final observedStartTime = await service?.getRunTime();
     if (StartupTrace.enabled || system.isAndroid) {
       final observedSession = await service?.getSessionSnapshot() ?? const {};
+      if (read != _snapshotRead || !_lifecycle.isCurrent(intent)) return false;
       final observedState = observedSession['state'];
       if (observedState is String) {
         _nativeSession = observedSession;
         if (observedState == 'RUNNING') {
           final startedAt = observedSession['startedAt'];
           startTime =
-              observedStartTime ??
               (startedAt is int && startedAt > 0
                   ? DateTime.fromMillisecondsSinceEpoch(startedAt)
-                  : startTime);
+                  : observedStartTime);
         } else if (observedState == 'PAUSED' || observedState == 'STOPPED') {
           startTime = null;
         }
@@ -1046,6 +1065,7 @@ class SetupAction extends _$SetupAction {
         'flutter_is_start': startTime != null,
       },
     );
+    return true;
   }
 
   Map<String, dynamic> _nativeSession = const {};
@@ -1059,7 +1079,7 @@ class SetupAction extends _$SetupAction {
   /// without issuing another VPN lifecycle command.
   Future<void> reconcileNativeSession() async {
     if (!system.isAndroid) return;
-    await _updateStartTime();
+    if (!await _updateStartTime()) return;
     switch (nativeSessionUiStateFor(_sessionState)) {
       case NativeSessionUiState.running:
         ref.read(isSmartStoppedProvider.notifier).set(false);
@@ -1068,20 +1088,19 @@ class SetupAction extends _$SetupAction {
         }
         break;
       case NativeSessionUiState.paused:
-        await handleSmartStopLocal();
+        startTime = null;
+        ref.read(runTimeProvider.notifier).value = null;
         ref.read(isSmartStoppedProvider.notifier).set(true);
         break;
       case NativeSessionUiState.stopped:
         startTime = null;
         reconcileUiStatsTimerIfNeeded();
-        await coreController.stopCoreListenerOnly();
         convergeFullStopProviders(
           clearManualOverride: () =>
               ref.read(smartAutoStopManualOverrideProvider.notifier).clear(),
           clearSmartStopped: () =>
               ref.read(isSmartStoppedProvider.notifier).set(false),
         );
-        coreController.resetTraffic();
         ref.read(trafficsProvider.notifier).clear();
         ref.read(totalTrafficProvider.notifier).value = const Traffic();
         ref.read(runTimeProvider.notifier).value = null;
@@ -1113,17 +1132,16 @@ class SetupAction extends _$SetupAction {
       startTime = null;
       reconcileUiStatsTimerIfNeeded();
     }
-    // P0+P1: 停代理后先关连接释放 buffer，再 GC 释放 Go 堆
-    // 顺序执行，不阻塞 handleStop 调用者的后续 UI 重置
-    unawaited(
-      coreController.closeConnections().then((_) => coreController.requestGc()),
-    );
     return true;
   }
 
   /// Local-only stop for smart auto stop: cancel timer, stop listener,
   /// clear runTime in UI — but do NOT reset traffic or call native stopService.
   Future handleSmartStopLocal() async {
+    if (system.isAndroid) {
+      await reconcileNativeSession();
+      return;
+    }
     StartupTrace.mark('smart_stop_begin', extras: {'layer': 'flutter_local'});
     startTime = null;
     reconcileUiStatsTimerIfNeeded();
@@ -1142,6 +1160,10 @@ class SetupAction extends _$SetupAction {
   /// Local-only resume for smart auto stop: restore startTime, restart
   /// runtime/traffic timer, resume core listener.
   Future handleSmartResumeLocal(DateTime nativeStartTime) async {
+    if (system.isAndroid) {
+      await reconcileNativeSession();
+      return;
+    }
     StartupTrace.mark(
       'smart_resume_begin',
       extras: {
@@ -1183,6 +1205,7 @@ class SetupAction extends _$SetupAction {
   }
 
   Future<void> initStatus() async {
+    final initIntent = _lifecycle.generation;
     if (!globalState.needInitStatus) {
       commonPrint.log('init status cancel');
       return;
@@ -1190,13 +1213,19 @@ class SetupAction extends _$SetupAction {
     commonPrint.log('init status');
     StartupTrace.mark('initStatus.begin');
     if (system.isAndroid) {
-      await _updateStartTime();
+      if (!await _updateStartTime()) return;
       StartupTrace.mark('updateStartTime');
     }
     final sessionState = _sessionState;
+    if (sessionState == 'STARTING' || sessionState == 'STOPPING') {
+      globalState.needInitStatus = false;
+      await ref.read(coreActionProvider.notifier).connectCore(minDelay: Duration.zero);
+      await reconcileNativeSession();
+      return;
+    }
     final shouldFullSetup = shouldFullSetupOnInit(
       isRunning: isStart || sessionRequiresFullSetup(sessionState),
-      autoRun: ref.read(appSettingProvider).autoRun,
+      autoRun: sessionState != 'PAUSED' && ref.read(appSettingProvider).autoRun,
     );
     if (shouldFullSetup) {
       final coreAction = ref.read(coreActionProvider.notifier);
@@ -1223,6 +1252,7 @@ class SetupAction extends _$SetupAction {
       } else {
         StartupTrace.mark('core_init_failed');
       }
+      if (!_lifecycle.isCurrent(initIntent)) return;
       await updateStatus(true, isInit: true);
     } else {
       globalState.needInitStatus = false;
@@ -1261,6 +1291,24 @@ class SetupAction extends _$SetupAction {
   }
 
   Future<void> updateStatus(bool isStart, {bool isInit = false}) async {
+    final intent = isInit ? _lifecycle.generation : _lifecycle.begin();
+    if (!isStart) {
+      _runtimeConfigCommitOwner.beginRequest();
+      // Stop bypasses the preparation queue: it must cancel a pending native
+      // permission request without waiting for that request to finish.
+      await handleStop();
+      return;
+    } else if (!isInit) {
+      await globalState.attach();
+    }
+    if (!_lifecycle.isCurrent(intent)) return;
+    await _lifecycle.commit(intent, () =>
+        _updateStatusOwned(isStart, isInit: isInit, intent: intent));
+  }
+
+  Future<void> _updateStatusOwned(bool isStart, {
+    required bool isInit, required int intent,
+  }) async {
     StartupTrace.mark(
       'vpn_action_requested',
       extras: {
@@ -1275,11 +1323,10 @@ class SetupAction extends _$SetupAction {
             shouldClearTaskRemovalStop(isStart: isStart, isInit: isInit)) {
           await service?.clearTaskRemovalStop();
         }
-        final res = await ref
-            .read(coreActionProvider.notifier)
-            .tryStartCore(true);
-        if (res) return;
-        if (!ref.read(initProvider)) return;
+        final coreAction = ref.read(coreActionProvider.notifier);
+        if (!await coreAction.connectCore()) return;
+        if (!await coreAction.ensureCoreReady()) return;
+        if (!_lifecycle.isCurrent(intent) || !ref.read(initProvider)) return;
       } else {
         globalState.needInitStatus = false;
       }
@@ -1291,12 +1338,20 @@ class SetupAction extends _$SetupAction {
           force: true,
           silence: policy.silence,
           preloadInvoke: () async {
+            if (!_lifecycle.isCurrent(intent)) return;
             started = await _handleStart();
           },
         );
 
-        if (outcome == SetupConfigOutcome.superseded) return;
+        if (!_lifecycle.isCurrent(intent) ||
+            outcome == SetupConfigOutcome.superseded) {
+          return;
+        }
         if (!started || !outcome.mayContinueStart) {
+          if (system.isAndroid) {
+            await reconcileNativeSession();
+            return;
+          }
           if (policy.stopOnFailure) {
             final stopped = await handleStop();
             if (!stopped) return;
@@ -1306,12 +1361,21 @@ class SetupAction extends _$SetupAction {
           return;
         }
 
+        if (system.isAndroid) {
+          await reconcileNativeSession();
+          return;
+        }
         startTime ??= DateTime.now();
         if (policy.seedRunTimeAtZero) {
           ref.read(runTimeProvider.notifier).value = 0;
         }
         ref.read(commonActionProvider.notifier).updateRunTime();
       } catch (_) {
+        if (!_lifecycle.isCurrent(intent)) return;
+        if (system.isAndroid) {
+          await reconcileNativeSession();
+          rethrow;
+        }
         if (!isInit) {
           try {
             await handleStop();
@@ -1338,7 +1402,7 @@ class SetupAction extends _$SetupAction {
         clearSmartStopped: () =>
             ref.read(isSmartStoppedProvider.notifier).set(false),
       );
-      coreController.resetTraffic();
+      if (!system.isAndroid) coreController.resetTraffic();
       ref.read(trafficsProvider.notifier).clear();
       ref.read(totalTrafficProvider.notifier).value = const Traffic();
       ref.read(runTimeProvider.notifier).value = null;
@@ -2223,6 +2287,8 @@ class CoreAction extends _$CoreAction {
   }
 
   Future<bool> restartCore([bool start = false]) async {
+    final setupAction = ref.read(setupActionProvider.notifier);
+    final intent = setupAction.lifecycleGeneration;
     final isDisconnected =
         ref.read(coreStatusProvider) == CoreStatus.disconnected;
     ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
@@ -2231,6 +2297,7 @@ class CoreAction extends _$CoreAction {
     if (!connected) return false;
     final callerOwnsProfileActivation = start || ref.read(isStartProvider);
     await initCore(callerOwnsProfileActivation: callerOwnsProfileActivation);
+    if (!setupAction.isCurrentLifecycle(intent)) return false;
     if (callerOwnsProfileActivation) {
       await ref
           .read(setupActionProvider.notifier)
@@ -2827,7 +2894,7 @@ class ProxiesAction extends _$ProxiesAction {
       final file = File(path);
       if (await file.exists()) {
         final bytes = await file.readAsBytes();
-        profileFileSha256 = sha256.convert(bytes).toString();
+        profileFileSha256 = await compute(_profileBytesFingerprint, bytes);
       }
     } catch (e) {
       commonPrint.log('compute profile file sha256 failed: $e');

@@ -9,6 +9,7 @@ import 'package:fl_clash/views/proxies/common.dart' as proxy_common;
 import 'package:fl_clash/widgets/surge/surge.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
+import 'package:fl_clash/state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 const _heroFillDuration = SurgeMotion.heroFill;
@@ -136,18 +137,20 @@ class _SurgeDashboardHeroState extends ConsumerState<SurgeDashboardHero>
     } else {
       _fillController.reverse();
     }
-    debouncer.call(FunctionTag.updateStatus, () async {
+    unawaited(() async {
       try {
-        await ref
+        // Register intent immediately. SetupAction owns the attachment wait,
+        // so a later Stop can invalidate this tap while startup is pending.
+        await globalState.container
             .read(setupActionProvider.notifier)
-            .updateStatus(nextIsStart, isInit: !ref.read(initProvider));
+            .updateStatus(nextIsStart);
       } finally {
         if (mounted) {
           setState(() => _transitionKind = null);
           _sheenController.stop();
         }
       }
-    }, duration: commonDuration);
+    }());
   }
 
   void _handleChangeMode(Mode mode, WidgetRef ref) {

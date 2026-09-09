@@ -6,6 +6,24 @@ import kotlin.test.assertEquals
 
 class RunStateMappingTest {
     @Test
+    fun immediateSmartPauseStillAcknowledgesStart() {
+        assertEquals(true, startAcknowledged(SessionState.RUNNING))
+        assertEquals(true, startAcknowledged(SessionState.PAUSED))
+        assertEquals(false, startAcknowledged(SessionState.STARTING))
+        assertEquals(false, startAcknowledged(SessionState.STOPPED))
+    }
+
+    @Test
+    fun permissionCompletionDependsOnIntentNotObservedRunState() {
+        // A STOPPED snapshot during the dialog does not cancel permission work.
+        assertEquals(true, permissionIntentIsCurrent(7L, 7L, 7L))
+        // An explicit Stop invalidates the same completion, even if UI is PENDING.
+        assertEquals(false, permissionIntentIsCurrent(7L, 7L, 8L))
+        assertEquals(false, permissionIntentIsCurrent(7L, null, 7L))
+        assertEquals(false, permissionIntentIsCurrent(7L, 8L, 8L))
+    }
+
+    @Test
     fun sessionStatesKeepExistingRunStateMapping() {
         assertEquals(RunState.START, runStateForSessionState(SessionState.RUNNING))
         assertEquals(RunState.PENDING, runStateForSessionState(SessionState.STARTING))

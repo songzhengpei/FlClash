@@ -57,7 +57,7 @@ class CommonService : Service(), IBaseService, CoroutineScope {
         runBlocking {
             withTimeoutOrNull(2_000L) {
                 lifecycleMutex.withLock {
-                    if (!shutdownComplete) cleanupLocked(stopService = false)
+                    if (!shutdownComplete) cleanupLocked(stopService = false, stopListeners = false)
                 }
             }
         }
@@ -86,6 +86,7 @@ class CommonService : Service(), IBaseService, CoroutineScope {
         shutdownComplete = false
         return try {
             loader.load()
+            check(setCoreListeners(true)) { "Core listeners did not start" }
             operational = true
             ServiceOperationResult.success()
         } catch (e: Exception) {
@@ -111,8 +112,11 @@ class CommonService : Service(), IBaseService, CoroutineScope {
         }
     }
 
-    private suspend fun cleanupLocked(stopService: Boolean) {
+    private suspend fun cleanupLocked(stopService: Boolean, stopListeners: Boolean = true) {
         operational = false
+        // onDestroy has a main-thread deadline. The remote disconnect handler
+        // cleans listeners under the session lock after checking delegate identity.
+        if (stopListeners) check(setCoreListeners(false)) { "Core listeners did not stop" }
         loader.unload()
         shutdownComplete = true
         if (stopService) stopSelf()

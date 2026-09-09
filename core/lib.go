@@ -239,15 +239,7 @@ func quickSetup(callback unsafe.Pointer, initParamsChar *C.char, setupParamsChar
 		defer releaseObject(callback)
 		initParamsString := takeCString(initParamsChar)
 		setupParamsString := takeCString(setupParamsChar)
-		if !handleInitClash(initParamsString) {
-			invokeResult(callback, "init failed")
-			return
-		}
-		isRunning = true
-		message := handleSetupConfig([]byte(setupParamsString))
-		if message != "" {
-			handleStopListener()
-		}
+		message := handleQuickSetup(initParamsString, setupParamsString)
 		invokeResult(callback, message)
 	}()
 }

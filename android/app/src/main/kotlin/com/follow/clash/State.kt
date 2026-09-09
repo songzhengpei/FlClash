@@ -11,6 +11,7 @@ import com.follow.clash.service.models.SessionSnapshot
 import com.follow.clash.service.models.SessionState
 import com.google.gson.Gson
 import io.flutter.embedding.engine.FlutterEngine
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -39,6 +40,12 @@ internal fun toggleCommandForSessionState(state: String): SessionCommand = when 
     else -> SessionCommand.NONE
 }
 
+internal fun startAcknowledged(state: String): Boolean =
+    state == SessionState.RUNNING || state == SessionState.PAUSED
+
+internal fun permissionIntentIsCurrent(expected: Long, pending: Long?, stopEpoch: Long): Boolean =
+    expected == stopEpoch && pending == expected
+
 internal fun canFullStopSession(state: String): Boolean =
     state == SessionState.RUNNING || state == SessionState.PAUSED
 
@@ -60,6 +67,8 @@ internal fun isTerminalSessionState(state: String): Boolean =
 object State {
 
     val runLock = Mutex()
+    private val stopEpoch = AtomicLong(0)
+    private var pendingStartEpoch: Long? = null
 
     var runTime: Long = 0
 
@@ -194,27 +203,28 @@ object State {
             "vpn_action_requested",
             mapOf("action" to "stop", "source" to "android_action", "run_state" to runStateFlow.value),
         )
-        if (!canFullStopSession(sessionSnapshot.state)) {
-            return
-        }
         tilePlugin?.handleStop()
+        val stopped = stopServiceAndAwait()
         if (flutterEngine != null) {
             return
         }
-        if (stopServiceAndAwait()) {
+        if (stopped) {
             GlobalState.application.showToast(sharedState.stopTip)
         }
     }
 
-    suspend fun handleStartService(): Boolean {
+    suspend fun handleStartService(expectedEpoch: Long = stopEpoch.get()): Boolean {
+        if (expectedEpoch != stopEpoch.get()) return false
         // Always re-check VPN preparation. Android grants VPN ownership to only
         // one package at a time, so a cached RUNNING state does not prove that
         // this package is still the prepared VPN application.
         if (!reconcilePendingBeforeExplicitStart()) return false
         runLock.withLock {
-            if (!canAttemptExplicitStart(runStateFlow.value)) {
+            if (expectedEpoch != stopEpoch.get() || pendingStartEpoch != null ||
+                !canAttemptExplicitStart(runStateFlow.value)) {
                 return false
             }
+            pendingStartEpoch = expectedEpoch
             if (runStateFlow.value == RunState.STOP) {
                 runStateFlow.tryEmit(RunState.PENDING)
             }
@@ -224,8 +234,9 @@ object State {
             val options = sharedState.vpnOptions
             if (options == null) {
                 runLock.withLock {
-                    runTime = 0L
-                    runStateFlow.tryEmit(RunState.STOP)
+                    if (permissionIntentIsCurrent(expectedEpoch, pendingStartEpoch, stopEpoch.get())) {
+                        applySnapshot(sessionSnapshot)
+                    }
                 }
                 return false
             }
@@ -249,9 +260,8 @@ object State {
                 )
                 if (!vpnPrepared) {
                     runLock.withLock {
-                        if (runStateFlow.value == RunState.PENDING) {
-                            runTime = 0L
-                            runStateFlow.tryEmit(RunState.STOP)
+                        if (pendingStartEpoch == expectedEpoch && stopEpoch.get() == expectedEpoch) {
+                            applySnapshot(sessionSnapshot)
                         }
                     }
                     return false
@@ -265,9 +275,8 @@ object State {
                 )
                 if (intent != null) {
                     runLock.withLock {
-                        if (runStateFlow.value == RunState.PENDING) {
-                            runTime = 0L
-                            runStateFlow.tryEmit(RunState.STOP)
+                        if (pendingStartEpoch == expectedEpoch && stopEpoch.get() == expectedEpoch) {
+                            applySnapshot(sessionSnapshot)
                         }
                     }
                     return false
@@ -278,22 +287,22 @@ object State {
             // remote layer must validate that its RUNNING session still has an
             // operational TUN before it may return success.
             return runLock.withLock {
-                if (
-                    runStateFlow.value != RunState.PENDING &&
-                    runStateFlow.value != RunState.START
-                ) {
+                if (!permissionIntentIsCurrent(expectedEpoch, pendingStartEpoch, stopEpoch.get())) {
                     return@withLock false
                 }
                 startServiceLocked()
             }
         } catch (e: Exception) {
             runLock.withLock {
-                if (runStateFlow.value == RunState.PENDING) {
-                    runTime = 0L
-                    runStateFlow.tryEmit(RunState.STOP)
+                if (permissionIntentIsCurrent(expectedEpoch, pendingStartEpoch, stopEpoch.get())) {
+                    applySnapshot(sessionSnapshot)
                 }
             }
             return false
+        } finally {
+            runLock.withLock {
+                if (pendingStartEpoch == expectedEpoch) pendingStartEpoch = null
+            }
         }
     }
 
@@ -315,6 +324,7 @@ object State {
     }
 
     private suspend fun setupAndStart() {
+        val expectedEpoch = stopEpoch.get()
         Service.bind()
         syncState()
         val initParams = mutableMapOf<String, Any>()
@@ -332,12 +342,13 @@ object State {
                 GlobalState.application.showToast(it)
             }
             runLock.withLock {
-                runTime = 0L
-                runStateFlow.tryEmit(RunState.STOP)
+                if (expectedEpoch == stopEpoch.get()) {
+                    Service.getSessionSnapshot().onSuccess(::applySnapshot)
+                }
             }
             return
         }
-        if (startServiceSafely()) {
+        if (handleStartService(expectedEpoch)) {
             GlobalState.application.showToast(sharedState.startTip)
         }
     }
@@ -369,7 +380,7 @@ object State {
                 val snapshot = awaitStartSnapshot()
                 if (snapshot != null) {
                     applySnapshot(snapshot)
-                    return snapshot.state == SessionState.RUNNING
+                    return startAcknowledged(snapshot.state)
                 }
                 GlobalState.log("Started, but session snapshot remains unavailable")
                 runStateFlow.tryEmit(RunState.PENDING)
@@ -381,7 +392,7 @@ object State {
                 if (snapshot != null) {
                     applySnapshot(snapshot)
                     when (snapshot.state) {
-                        SessionState.RUNNING -> return true
+                        SessionState.RUNNING, SessionState.PAUSED -> return true
                         SessionState.STARTING -> return false
                         SessionState.STOPPED -> Unit
                     }
@@ -425,31 +436,35 @@ object State {
         }
     }
 
-    suspend fun stopServiceAndAwait(): Boolean = runLock.withLock {
-        try {
-            runStateFlow.tryEmit(RunState.PENDING)
-            val result = Service.stopService()
-            Phase4Mark.emit(
-                "vpn_service_result",
-                mapOf(
-                    "action" to "stop",
-                    "success" to result.success,
-                    "error_code" to result.errorCode,
-                ),
-            )
-            if (result.success) {
-                applySnapshot(
-                    Service.getSessionSnapshot().getOrNull()
-                        ?: SessionSnapshot.stopped()
+    suspend fun stopServiceAndAwait(): Boolean {
+        stopEpoch.incrementAndGet()
+        return runLock.withLock {
+            pendingStartEpoch = null
+            try {
+                runStateFlow.tryEmit(RunState.PENDING)
+                val result = Service.stopService()
+                Phase4Mark.emit(
+                    "vpn_service_result",
+                    mapOf(
+                        "action" to "stop",
+                        "success" to result.success,
+                        "error_code" to result.errorCode,
+                    ),
                 )
-            } else {
-                GlobalState.log("Stop failed: ${result.errorCode} ${result.message}")
-                Service.getSessionSnapshot().onSuccess(::applySnapshot)
-            }
-            result.success && sessionSnapshot.state == SessionState.STOPPED
-        } finally {
-            if (runStateFlow.value == RunState.PENDING) {
-                runStateFlow.tryEmit(runStateForSessionState(sessionSnapshot.state))
+                if (result.success) {
+                    applySnapshot(
+                        Service.getSessionSnapshot().getOrNull()
+                            ?: SessionSnapshot.stopped()
+                    )
+                } else {
+                    GlobalState.log("Stop failed: ${result.errorCode} ${result.message}")
+                    Service.getSessionSnapshot().onSuccess(::applySnapshot)
+                }
+                result.success && sessionSnapshot.state == SessionState.STOPPED
+            } finally {
+                if (runStateFlow.value == RunState.PENDING) {
+                    runStateFlow.tryEmit(runStateForSessionState(sessionSnapshot.state))
+                }
             }
         }
     }
