@@ -1194,48 +1194,41 @@ class PlatformLatencyPanel extends StatelessWidget {
   }
 
   Widget _value(BuildContext context, NetworkDiagnosticTargetState? result) {
-    if (result?.latencyStatus == NetworkDiagnosticLatencyStatus.timeout) {
-      return Text(
-        'Timeout',
-        maxLines: 1,
-        softWrap: false,
-        overflow: TextOverflow.clip,
-        style: _valueStyle(context).copyWith(color: dangerColor),
-      );
-    }
-    if (result?.latencyMs == null) {
-      if (result?.refreshing == true) {
-        return Opacity(
-          opacity: 0.55,
-          child: Text(
-            '-',
-            maxLines: 1,
-            softWrap: false,
-            style: _valueStyle(context).copyWith(color: secondaryTextColor),
-          ),
-        );
-      }
-      return Text(
-        '-',
-        maxLines: 1,
-        softWrap: false,
-        style: _valueStyle(context).copyWith(color: secondaryTextColor),
-      );
-    }
+    final timedOut =
+        result?.latencyStatus == NetworkDiagnosticLatencyStatus.timeout;
+    final hasLatency = result?.latencyMs != null;
+    final color = timedOut
+        ? dangerColor
+        : hasLatency
+        ? textColor
+        : secondaryTextColor;
+    final opacity = !timedOut && result?.refreshing == true
+        ? (hasLatency ? 0.82 : 0.55)
+        : 1.0;
     return Opacity(
-      opacity: result!.refreshing ? 0.82 : 1,
-      child: Text(
-        _valueLabel(result),
-        maxLines: 1,
-        softWrap: false,
-        overflow: TextOverflow.clip,
-        style: _valueStyle(context).copyWith(color: textColor),
+      opacity: opacity,
+      // Keep glyph edges away from the opacity layer's raster bounds, even
+      // when a device font has taller ascenders/descenders. This is inside
+      // the shared fit, so all labels retain the same scale and alignment.
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Text(
+          _valueLabel(result),
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.visible,
+          style: _valueStyle(context).copyWith(color: color),
+        ),
       ),
     );
   }
 
   TextStyle _valueStyle(BuildContext context) {
-    return context.typography.dashboardLatencyValue;
+    // A font-size multiplier is not a reliable ascent/descent budget for
+    // OEM or user-selected fonts. Use the actual font's vertical metrics.
+    return context.typography.dashboardLatencyValue.copyWith(
+      height: kTextHeightNone,
+    );
   }
 
   double _sharedValueWidth(BuildContext context) {

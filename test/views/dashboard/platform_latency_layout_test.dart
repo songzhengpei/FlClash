@@ -5,9 +5,16 @@ import 'package:fl_clash/views/dashboard/widgets/network_overview_card.dart';
 import 'package:fl_clash/widgets/surge/surge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  setUpAll(() async {
+    // Use real ascenders/descenders rather than Flutter's square test font.
+    final loader = FontLoader('LatencyTestFont')
+      ..addFont(rootBundle.load('assets/fonts/JetBrainsMono-Regular.ttf'));
+    await loader.load();
+  });
   for (final width in [280.0, 320.0, 360.0, 384.0]) {
     for (final scale in [1.0, 1.3, 2.0]) {
       testWidgets('complete latency at ${width}dp and ${scale}x text', (
@@ -31,7 +38,11 @@ void main() {
                   typography.copyWith(
                     // Wider glyph spacing also exercises OEM/custom fonts.
                     dashboardLatencyValue: typography.dashboardLatencyValue
-                        .copyWith(letterSpacing: 1.5),
+                        .copyWith(
+                          fontFamily: 'LatencyTestFont',
+                          letterSpacing: 1.5,
+                          height: 0.7,
+                        ),
                   ),
                 ],
               ),
@@ -58,6 +69,7 @@ void main() {
                           'YouTube': NetworkDiagnosticTargetState(
                             target: NetworkDiagnosticTarget.youtube,
                             latencyMs: latency,
+                            refreshing: true,
                             latencyStatus: latency == null
                                 ? NetworkDiagnosticLatencyStatus.timeout
                                 : NetworkDiagnosticLatencyStatus.fresh,
@@ -102,6 +114,42 @@ void main() {
           );
           expect(topLeft.dx, greaterThanOrEqualTo(panelRect.left));
           expect(bottomRight.dx, lessThanOrEqualTo(panelRect.right + 0.01));
+          // Natural font ascent/descent must fit with breathing room inside
+          // the fitted paint area, including partially opaque refreshes.
+          for (final value in [label, '123ms', '456ms']) {
+            final valueFinder = find.text(value);
+            final rendered = tester.renderObject<RenderParagraph>(valueFinder);
+            final natural = TextPainter(
+              text: TextSpan(
+                text: value,
+                style: rendered.text.style!.copyWith(height: kTextHeightNone),
+              ),
+              textDirection: TextDirection.ltr,
+              textScaler: rendered.textScaler,
+            )..layout();
+            final metrics = natural.computeLineMetrics().single;
+            final actual = TextPainter(
+              text: rendered.text,
+              textDirection: TextDirection.ltr,
+              textScaler: rendered.textScaler,
+            )..layout(maxWidth: rendered.size.width);
+            final baseline = actual.computeLineMetrics().single.baseline;
+            final glyphTop = rendered.localToGlobal(
+              Offset(0, baseline - metrics.ascent),
+            );
+            final glyphBottom = rendered.localToGlobal(
+              Offset(0, baseline + metrics.descent),
+            );
+            final fitRect = tester.getRect(
+              find.ancestor(of: valueFinder, matching: find.byType(FittedBox)),
+            );
+            expect(glyphTop.dy, greaterThan(fitRect.top + 0.1));
+            expect(glyphBottom.dy, lessThan(fitRect.bottom - 0.1));
+            expect(glyphTop.dy, greaterThanOrEqualTo(panelRect.top));
+            expect(glyphBottom.dy, lessThanOrEqualTo(panelRect.bottom));
+            natural.dispose();
+            actual.dispose();
+          }
           final sharedScale = paragraph
               .getTransformTo(null)
               .getMaxScaleOnAxis();
