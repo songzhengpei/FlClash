@@ -788,7 +788,7 @@ class _OverviewLatencyHostState extends ConsumerState<_OverviewLatencyHost> {
           ),
         ),
         SizedBox(height: cardLayout.latencyHeaderToRowsGap),
-        _PlatformLatencyPanel(
+        PlatformLatencyPanel(
           targets: NetworkDiagnosticTarget.all,
           results: _latencyResults,
           fallbackCountryCode: null,
@@ -1127,8 +1127,10 @@ class _TrafficAmount extends StatelessWidget {
   }
 }
 
-class _PlatformLatencyPanel extends StatelessWidget {
-  const _PlatformLatencyPanel({
+@visibleForTesting
+class PlatformLatencyPanel extends StatelessWidget {
+  const PlatformLatencyPanel({
+    super.key,
     required this.targets,
     required this.results,
     required this.fallbackCountryCode,
@@ -1183,6 +1185,14 @@ class _PlatformLatencyPanel extends StatelessWidget {
     return (latency / 640).clamp(0.08, 1).toDouble();
   }
 
+  String _valueLabel(NetworkDiagnosticTargetState? result) {
+    if (result?.latencyStatus == NetworkDiagnosticLatencyStatus.timeout) {
+      return 'Timeout';
+    }
+    final latency = result?.latencyMs;
+    return latency == null ? '-' : '${latency.toString().padLeft(3, '0')}ms';
+  }
+
   Widget _value(BuildContext context, NetworkDiagnosticTargetState? result) {
     if (result?.latencyStatus == NetworkDiagnosticLatencyStatus.timeout) {
       return Text(
@@ -1212,11 +1222,10 @@ class _PlatformLatencyPanel extends StatelessWidget {
         style: _valueStyle(context).copyWith(color: secondaryTextColor),
       );
     }
-    final padded = result!.latencyMs!.toString().padLeft(3, '0');
     return Opacity(
-      opacity: result.refreshing ? 0.82 : 1,
+      opacity: result!.refreshing ? 0.82 : 1,
       child: Text(
-        '${padded}ms',
+        _valueLabel(result),
         maxLines: 1,
         softWrap: false,
         overflow: TextOverflow.clip,
@@ -1229,8 +1238,34 @@ class _PlatformLatencyPanel extends StatelessWidget {
     return context.typography.dashboardLatencyValue;
   }
 
+  double _sharedValueWidth(BuildContext context) {
+    var width = layout.geometry(50);
+    final painter = TextPainter(
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      locale: Localizations.maybeLocaleOf(context),
+      maxLines: 1,
+    );
+    var style = DefaultTextStyle.of(context).style.merge(_valueStyle(context));
+    if (MediaQuery.boldTextOf(context)) {
+      style = style.merge(const TextStyle(fontWeight: FontWeight.bold));
+    }
+    for (final target in targets) {
+      painter.text = TextSpan(
+        text: _valueLabel(results[target.name]),
+        style: style,
+      );
+      painter.layout();
+      // Leave a little room for glyph edges and fractional pixel rounding.
+      width = math.max(width, painter.width.ceilToDouble() + 2);
+    }
+    painter.dispose();
+    return width;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final valueWidth = _sharedValueWidth(context);
     return Column(
       children: [
         for (final target in targets) ...[
@@ -1244,7 +1279,15 @@ class _PlatformLatencyPanel extends StatelessWidget {
             barWidthFactor: _barWidth(results[target.name]),
             textColor: textColor,
             secondaryTextColor: secondaryTextColor,
-            trailing: _value(context, results[target.name]),
+            trailing: SizedBox(
+              // Every row fits the same natural width into the same column,
+              // so a long value scales all three labels by the same amount.
+              width: valueWidth,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: _value(context, results[target.name]),
+              ),
+            ),
             onRetest: onRetest,
             active:
                 shouldAnimatePending &&
@@ -1320,7 +1363,14 @@ class _PlatformLatencyRow extends StatelessWidget {
         SizedBox(width: layout.geometry(8)),
         SizedBox(
           width: layout.geometry(50),
-          child: Align(alignment: Alignment.centerRight, child: trailing),
+          // Geometry shrinks on narrow phones independently of system fonts.
+          // Lay out the complete value before fitting it, including long
+          // latencies and Timeout, rather than clipping a constrained Text.
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerRight,
+            child: trailing,
+          ),
         ),
       ],
     );
