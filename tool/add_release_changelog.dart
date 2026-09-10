@@ -26,7 +26,8 @@ void main() {
   ).firstMatch(source);
   if (marker == null) fail('Could not locate appChangelogEntries.');
   if (RegExp("version:\\s*'$tag'").hasMatch(source)) {
-    fail('The $tag app changelog already exists.');
+    stdout.writeln('The $tag app changelog already exists. Skipping.');
+    exit(0);
   }
 
   final now = DateTime.now().toUtc();
