@@ -107,12 +107,14 @@ class CoreController {
   }
 
   Future<String> validateConfigWithData(String data) async {
-    final path = await appPath.tempFilePath;
+    final path = '${await appPath.tempFilePath}.${DateTime.now().microsecondsSinceEpoch}';
     final file = File(path);
-    await file.safeWriteAsString(data);
-    final res = await _interface.validateConfig(path);
-    await File(path).safeDelete();
-    return res;
+    try {
+      await file.safeWriteAsString(data);
+      return await _interface.validateConfig(path);
+    } finally {
+      await file.safeDelete();
+    }
   }
 
   Future<String> updateConfig(UpdateParams updateParams) async {

@@ -106,11 +106,7 @@ class _CoreContainerState extends ConsumerState<CoreManager>
         });
       }
     });
-    ref.listenManual(updateParamsProvider, (prev, next) {
-      if (prev != next) {
-        ref.read(setupActionProvider.notifier).updateConfigDebounce();
-      }
-    });
+
     ref.listenManual(
       appForegroundProvider,
       (prev, next) => _syncCoreEventControls(),

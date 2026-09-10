@@ -23,6 +23,8 @@ import com.follow.clash.service.models.SessionTransitions
 import com.follow.clash.service.models.ServiceErrorCode
 import com.follow.clash.service.models.ServiceOperationResult
 import com.follow.clash.service.models.VpnOptions
+import com.follow.clash.service.models.getIpv4RouteAddress
+import com.follow.clash.service.models.getIpv6RouteAddress
 import com.follow.clash.service.modules.NetworkObserveModule
 import com.follow.clash.service.modules.PhysicalNetworkControlPlane
 import com.follow.clash.service.modules.PhysicalNetworkSnapshot
@@ -1149,6 +1151,72 @@ class RemoteService : Service(), CoroutineScope {
     }
 
     private val binder = object : IRemoteInterface.Stub() {
+        override fun reconfigureSettings(
+            options: VpnOptions, expectedSessionId: Long, result: IOperationResultInterface,
+        ) {
+            // Do not create a new user start intent. A stop/pause that arrives
+            // during this transaction must win, including from notification/tile.
+            val intent = lifecycleIntent.get()
+            launch {
+                runLock.withLock {
+                    val original = State.snapshot
+                    val previous = State.options
+                    fun currentIntent() = intent == lifecycleIntent.get() &&
+                        !TaskRemovalStopStore.isRequested(this@RemoteService)
+                    if (!currentIntent() || original.state != SessionState.RUNNING ||
+                        original.sessionId != expectedSessionId || previous == null) {
+                        replyOperation(result, ServiceOperationResult.failure(
+                            ServiceErrorCode.INTERNAL_ERROR, "Settings superseded by session change"))
+                        return@withLock
+                    }
+                    var touched = false
+                    suspend fun replace(next: VpnOptions) {
+                        check(currentIntent()) { "Settings superseded by stop/pause" }
+                        // Validate all routes before touching the current TUN.
+                        next.getIpv4RouteAddress()
+                        next.getIpv6RouteAddress()
+                        touched = true
+                        val stopped = delegate?.useService(timeoutMillis = 10_000L) {
+                            it.stop()
+                        }?.getOrThrow()
+                        check(stopped == null || stopped.success) { "VPN stop failed" }
+                        clearDelegate()
+                        check(currentIntent()) { "Settings superseded by stop/pause" }
+                        State.options = next
+                        applySession(original.copy(state = SessionState.STARTING))
+                        ensurePhysicalDelegateLocked(next)
+                        check(currentIntent()) { "Settings superseded by stop/pause" }
+                        val started = delegate?.useService { it.start() }?.getOrThrow()
+                        check(started?.success == true) { started?.message ?: "VPN start failed" }
+                        check(currentIntent()) { "Settings superseded by stop/pause" }
+                        check(!next.enable || persistCheckpoint(original, SessionState.RUNNING, next)) {
+                            "VPN recovery checkpoint commit failed"
+                        }
+                        if (!next.enable) check(clearRecoveryCheckpoint("settings_vpn_disabled")) {
+                            "VPN recovery checkpoint clear failed"
+                        }
+                        applySession(original)
+                    }
+                    try {
+                        replace(options)
+                        replyOperation(result, ServiceOperationResult.success(original.startedAt))
+                    } catch (error: Exception) {
+                        // At most one restoration, and never after a newer
+                        // lifecycle intent. Flutter restores the old core YAML.
+                        if (touched && currentIntent()) {
+                            try {
+                                replace(previous)
+                            } catch (restoreError: Exception) {
+                                rollbackStart(ServiceErrorCode.INTERNAL_ERROR, restoreError.message)
+                            }
+                        }
+                        replyOperation(result, ServiceOperationResult.failure(
+                            ServiceErrorCode.INTERNAL_ERROR, error.message))
+                    }
+                }
+            }
+        }
+
         override fun invokeAction(data: String, callback: ICallbackInterface) {
             Core.invokeAction(data) {
                 launch {

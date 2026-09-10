@@ -25,10 +25,12 @@ import (
 	"github.com/metacubex/mihomo/log"
 	rp "github.com/metacubex/mihomo/rules/provider"
 	"github.com/metacubex/mihomo/tunnel"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"sync"
 )
 
@@ -176,10 +178,13 @@ func readFile(path string) ([]byte, error) {
 	return data, err
 }
 
-func updateConfig(params *UpdateParams) {
+func updateConfig(params *UpdateParams) error {
 	runLock.Lock()
 	defer runLock.Unlock()
 	general := currentConfig.General
+	if params.AllowLan != nil {
+		general.AllowLan = *params.AllowLan
+	}
 	if params.MixedPort != nil {
 		general.MixedPort = *params.MixedPort
 	}
@@ -232,6 +237,32 @@ func updateConfig(params *UpdateParams) {
 	}
 
 	updateListeners()
+	return verifyConfiguredListeners()
+}
+
+// Mihomo's listener setters log bind failures instead of returning them.
+// A successful settings transaction must also acknowledge its actual ports.
+func verifyConfiguredListeners() error {
+	if !isRunning || currentConfig == nil {
+		return nil
+	}
+	actual := listener.GetPorts()
+	wanted := currentConfig.General
+	for _, port := range []struct {
+		name           string
+		actual, wanted int
+	}{
+		{"http", actual.Port, wanted.Port},
+		{"socks", actual.SocksPort, wanted.SocksPort},
+		{"mixed", actual.MixedPort, wanted.MixedPort},
+		{"redir", actual.RedirPort, wanted.RedirPort},
+		{"tproxy", actual.TProxyPort, wanted.TProxyPort},
+	} {
+		if port.actual != port.wanted {
+			return fmt.Errorf("%s listener not applied: wanted %d, actual %d", port.name, port.wanted, port.actual)
+		}
+	}
+	return nil
 }
 
 func validateConfigFile(path string) error {
@@ -242,8 +273,28 @@ func validateConfigFile(path string) error {
 	if len(buf) == 0 {
 		return fmt.Errorf("configuration file %s is empty", path)
 	}
-	_, err = config.UnmarshalRawConfig(buf)
-	return err
+	raw, err := config.UnmarshalRawConfig(buf)
+	if err != nil {
+		return err
+	}
+	if raw.DNS.Enable && raw.DNS.Listen != "" {
+		if err := validateDNSListen(raw.DNS.Listen); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateDNSListen(address string) error {
+	_, portText, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("invalid DNS listen address: %w", err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 0 || port > 65535 {
+		return fmt.Errorf("invalid DNS listen port: %s", portText)
+	}
+	return nil
 }
 
 func releaseUnusedOSMemory() {
@@ -266,18 +317,20 @@ func applyConfigLocked(params *SetupParams) error {
 		defaultTestURL = constant.DefaultTestURL
 	}
 	configPath := filepath.Join(constant.Path.HomeDir(), "config.yaml")
-	currentConfig, err = executor.ParseWithPath(configPath)
-	if err != nil {
-		currentConfig, _ = config.ParseRawConfig(config.DefaultRawConfig())
-		currentProxyGroupNames = nil
-	} else {
-		currentProxyGroupNames = getRawProxyGroupNames(configPath)
+	if err := validateConfigFile(configPath); err != nil {
+		return err
 	}
+	nextConfig, err := executor.ParseWithPath(configPath)
+	if err != nil {
+		return err
+	}
+	currentConfig = nextConfig
+	currentProxyGroupNames = getRawProxyGroupNames(configPath)
 	hub.ApplyConfig(currentConfig)
 	invalidateProxiesCacheLocked()
 	patchSelectGroup(params.SelectedMap)
 	updateListeners()
-	return err
+	return verifyConfiguredListeners()
 }
 
 func getRawProxyGroupNames(path string) []string {

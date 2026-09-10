@@ -7,6 +7,7 @@ import 'package:fl_clash/widgets/surge/surge.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:fl_clash/widgets/settings_apply_status.dart';
 
 class LogLevelItem extends ConsumerWidget {
   const LogLevelItem({super.key});
@@ -241,14 +242,13 @@ class Ipv6Item extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, ref) {
-    final appLocalizations = context.appLocalizations;
     final ipv6 = ref.watch(
       patchClashConfigProvider.select((state) => state.ipv6),
     );
     return ListItem.switchItem(
       leading: const Icon(SurgeIcons.water),
       title: const Text('IPv6'),
-      subtitle: Text(appLocalizations.ipv6Desc),
+      subtitle: Text(settingsText(context, '控制内核 IPv6 能力及 DNS 上限；VPN 接管请在网络页设置', 'Core IPv6 capability and DNS limit; configure VPN capture on the Network page')),
       delegate: SwitchDelegate(
         value: ipv6,
         onChanged: (bool value) async {
@@ -273,7 +273,7 @@ class AppendSystemDNSItem extends ConsumerWidget {
     return ListItem.switchItem(
       leading: const Icon(SurgeIcons.dns),
       title: Text(appLocalizations.appendSystemDns),
-      subtitle: Text(appLocalizations.appendSystemDnsTip),
+      subtitle: Text(settingsText(context, '向最终 DNS 追加系统解析器；关闭不会删除订阅或自动补全已有的系统 DNS', 'Adds the system resolver; disabling does not remove one supplied by the profile or automatic fallback')),
       delegate: SwitchDelegate(
         value: appendSystemDNS,
         onChanged: (bool value) async {

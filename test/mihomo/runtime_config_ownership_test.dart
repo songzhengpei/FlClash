@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:fl_clash/services/settings/settings_contract.dart';
 
 import 'package:fl_clash/common/task.dart';
 import 'package:fl_clash/enum/enum.dart';
@@ -58,6 +59,25 @@ Future<Map<String, dynamic>> _materialize(
 }
 
 void main() {
+
+  test('all eight independent IPv6 combinations reach materializer and VPN', () async {
+    for (final capture in [false, true]) {
+      for (final core in [false, true]) {
+        for (final aaaa in [false, true]) {
+          final config = const Config(themeProps: defaultThemeProps)
+              .copyWith.vpnProps(ipv6: capture)
+              .copyWith.patchClashConfig(ipv6: core)
+              .copyWith.patchClashConfig.dns(ipv6: aaaa);
+          final output = await _materialize({'dns': {'enable': true}},
+              patch: config.patchClashConfig, overrideDns: true);
+          expect(settingsVpnOptions(config).ipv6, capture);
+          expect(output['ipv6'], core);
+          expect((output['dns'] as Map)['ipv6'], core && aaaa);
+          expect(config.patchClashConfig.dns.ipv6, aaaa);
+        }
+      }
+    }
+  });
   group('GeoX URL ownership contract', () {
     const patch = GeoXUrl(
       mmdb: 'app-mmdb',

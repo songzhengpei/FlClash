@@ -8,7 +8,11 @@ import 'package:fl_clash/models/models.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'settings_apply.dart';
+
 part 'generated/database.g.dart';
+
+final _customRuleRevisions = <int, int>{};
 
 Future<void> withRollback<T>({
   required T snapshot,
@@ -364,17 +368,37 @@ class ProfileCustomRules extends _$ProfileCustomRules with AsyncNotifierMixin {
     final previous = List<Rule>.from(value);
     final newRule = rule.autoOrder(rule, null, previous.firstOrNull?.order);
     value = previous.copyAndPut(newRule, (rule) => rule.id == newRule.id);
+    final coordinator = ref.read(settingsApplyProvider.notifier);
+    final previousRevision = _customRuleRevisions[newRule.id] ?? 0;
+    final revision = previousRevision + 1;
+    _customRuleRevisions[newRule.id] = revision;
+    final previousRule = previous.where((item) => item.id == newRule.id).firstOrNull;
     unawaited(
       withRollback(
         snapshot: previous,
-        action: () =>
-            database.rulesDao.putProfileCustomRule(profileId, newRule),
+        action: () async {
+          await database.rulesDao.putProfileCustomRule(profileId, newRule);
+          coordinator.savedEdit(profileId, () async {
+            // A later committed edit of this rule owns its value, even if the
+            // user toggled away and back to the same value during application.
+            if (_customRuleRevisions[newRule.id] != revision) return;
+            if (previousRule == null) {
+              await database.rulesDao.delRules([newRule.id]);
+            } else {
+              await database.rulesDao.putProfileCustomRule(profileId, previousRule);
+            }
+            _customRuleRevisions[newRule.id] = previousRevision;
+          });
+        },
         rollback: (v) => value = v,
       ),
     );
   }
 
   void delAll(Iterable<int> ruleIds) {
+    for (final id in ruleIds) {
+      _customRuleRevisions[id] = (_customRuleRevisions[id] ?? 0) + 1;
+    }
     final previous = List<Rule>.from(value);
     value = List.from(previous.where((item) => !ruleIds.contains(item.id)));
     unawaited(
@@ -392,6 +416,7 @@ class ProfileCustomRules extends _$ProfileCustomRules with AsyncNotifierMixin {
     if (oldIndex < newIndex) insertIndex -= 1;
     final nextItems = List<Rule>.from(previous);
     final item = nextItems.removeAt(oldIndex);
+    _customRuleRevisions[item.id] = (_customRuleRevisions[item.id] ?? 0) + 1;
     nextItems.insert(insertIndex, item);
     value = nextItems;
     final preOrder = nextItems.safeGet(insertIndex - 1)?.order;

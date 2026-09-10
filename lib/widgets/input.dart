@@ -574,6 +574,7 @@ class _InputDialogState extends State<InputDialog> {
 }
 
 class ListInputPage extends ConsumerStatefulWidget {
+  final String? Function(String?)? validator;
   final String title;
   final List<String> items;
   final Widget Function(String item) titleBuilder;
@@ -586,6 +587,7 @@ class ListInputPage extends ConsumerStatefulWidget {
 
   const ListInputPage({
     super.key,
+    this.validator,
     required this.title,
     required this.items,
     required this.titleBuilder,
@@ -641,6 +643,8 @@ class _ListInputPageState extends ConsumerState<ListInputPage> {
   Future<void> _handleAddOrEdit([String? item]) async {
     final appLocalizations = context.appLocalizations;
     String? uniqueValidator(String? value) {
+      final error = widget.validator?.call(value);
+      if (error != null) return error;
       final index = _items.indexWhere((entry) {
         return entry == value;
       });

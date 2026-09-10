@@ -61,55 +61,25 @@ fun shouldAttachVpnHttpProxy(
     hasAssociatedProfiles: Boolean,
 ): Boolean = systemProxyRequested && !hasAssociatedProfiles
 
-fun VpnOptions.getIpv4RouteAddress(): List<CIDR> {
-    return routeAddress.filter {
-        it.isIpv4()
-    }.map {
-        it.toCIDR()
-    }
-}
+fun VpnOptions.getIpv4RouteAddress(): List<CIDR> =
+    routeAddress.map { it.toCIDR() }.filter { it.address.address.size == 4 }
 
-fun VpnOptions.getIpv6RouteAddress(): List<CIDR> {
-    return routeAddress.filter {
-        it.isIpv6()
-    }.map {
-        it.toCIDR()
-    }
-}
+fun VpnOptions.getIpv6RouteAddress(): List<CIDR> =
+    routeAddress.map { it.toCIDR() }.filter { it.address.address.size == 16 }
 
-fun String.isIpv4(): Boolean {
-    val parts = split("/")
-    if (parts.size != 2) {
-        throw IllegalArgumentException("Invalid CIDR format")
-    }
-    val address = InetAddress.getByName(parts[0])
-    return address.address.size == 4
-}
-
-fun String.isIpv6(): Boolean {
-    val parts = split("/")
-    if (parts.size != 2) {
-        throw IllegalArgumentException("Invalid CIDR format")
-    }
-    val address = InetAddress.getByName(parts[0])
-    return address.address.size == 16
-}
+fun String.isIpv4(): Boolean = toCIDR().address.address.size == 4
+fun String.isIpv6(): Boolean = toCIDR().address.address.size == 16
 
 fun String.toCIDR(): CIDR {
-    val parts = split("/")
-    if (parts.size != 2) {
-        throw IllegalArgumentException("Invalid CIDR format")
+    val parts = trim().split("/")
+    require(parts.size == 2) { "Invalid CIDR format" }
+    val literal = parts[0]
+    require(literal.matches(Regex("[0-9a-fA-F:.]+")) &&
+        (literal.contains(':') || literal.count { it == '.' } == 3)) {
+        "Route must contain an IP literal"
     }
-    val ipAddress = parts[0]
-    val prefixLength =
-        parts[1].toIntOrNull() ?: throw IllegalArgumentException("Invalid prefix length")
-
-    val address = InetAddress.getByName(ipAddress)
-
-    val maxPrefix = if (address.address.size == 4) 32 else 128
-    if (prefixLength < 0 || prefixLength > maxPrefix) {
-        throw IllegalArgumentException("Invalid prefix length for IP version")
-    }
-
-    return CIDR(address, prefixLength)
+    val prefix = parts[1].toIntOrNull() ?: throw IllegalArgumentException("Invalid prefix length")
+    val address = InetAddress.getByName(literal)
+    require(prefix in 0..(address.address.size * 8)) { "Invalid prefix length for IP version" }
+    return CIDR(address, prefix)
 }

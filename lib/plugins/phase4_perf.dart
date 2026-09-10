@@ -5,6 +5,9 @@ import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/providers/settings_apply.dart';
+import 'package:fl_clash/services/settings/settings_contract.dart';
+import 'package:fl_clash/plugins/service.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/proxies/common.dart';
 import 'package:flutter/services.dart';
@@ -27,6 +30,7 @@ class Phase4PerfCommands {
   /// Profile/perf experiment only. `null` = product `NavigationItem.keep`.
   static bool? dashboardKeepOverride;
   static ({bool enabled, int intervalMinutes})? _savedHealthConfig;
+  static Config? _savedSettings;
 
   static void attach() {
     if (!NavigationTrace.enabled || _attached) {
@@ -96,6 +100,8 @@ class Phase4PerfCommands {
         return _ipcDump(args['reason'] ?? args['event']);
       case 'vpn_dump':
         return _vpnDump();
+      case 'settings_probe':
+        return _settingsProbe(args);
       case 'vpn_action':
         return _vpnAction(args['action'] ?? args['value']);
       case 'smart_auto_stop_config':
@@ -402,6 +408,63 @@ class Phase4PerfCommands {
 
   static Map<String, Object?> _ipcDump(String? reason) {
     return CoreIpcTrace.dump(reason: reason ?? 'dump');
+  }
+
+  /// Profile/debug harness only; uses the same committed providers as the UI.
+  /// Never accepts arbitrary config, profile content, or executable code.
+  static Future<Map<String, Object?>> _settingsProbe(Map<String, String> args) async {
+    final container = globalState.container;
+    container.read(settingsApplyProvider);
+    final current = container.read(configProvider);
+    final operation = args['op'] ?? 'dump';
+    var next = current;
+    if (operation == 'set') {
+      _savedSettings ??= current;
+      final value = args['value'] ?? '';
+      final enabled = value == 'true';
+      next = switch (args['field']) {
+        'allowLan' => current.copyWith.patchClashConfig(allowLan: enabled),
+        'mixedPort' => current.copyWith.patchClashConfig(mixedPort: int.parse(value)),
+        'coreIpv6' => current.copyWith.patchClashConfig(ipv6: enabled),
+        'dnsIpv6' => current.copyWith.patchClashConfig.dns(ipv6: enabled),
+        'dnsListen' => current.copyWith.patchClashConfig.dns(listen: value),
+        'overrideDns' => current.copyWith(overrideDns: enabled),
+        'stack' => current.copyWith.patchClashConfig.tun(stack: TunStack.values.byName(value)),
+        'route' => current.copyWith.networkProps(routeMode: RouteMode.config)
+            .copyWith.patchClashConfig.tun(routeAddress: value.isEmpty ? [] : value.split(';')),
+        'vpnIpv6' => current.copyWith.vpnProps(ipv6: enabled),
+        'systemProxy' => current.copyWith.vpnProps(systemProxy: enabled),
+        _ => throw ArgumentError('Unsupported settings probe field'),
+      };
+    } else if (operation == 'restore' && _savedSettings != null) {
+      next = _savedSettings!;
+      _savedSettings = null;
+    } else if (operation == 'retry') {
+      container.read(settingsApplyProvider.notifier).retry();
+    }
+    if (next != current) {
+      container.read(patchClashConfigProvider.notifier).value = next.patchClashConfig;
+      container.read(vpnSettingProvider.notifier).value = next.vpnProps;
+      container.read(networkSettingProvider.notifier).value = next.networkProps;
+      container.read(overrideDnsProvider.notifier).value = next.overrideDns;
+    }
+    final status = container.read(settingsApplyProvider);
+    final config = container.read(configProvider);
+    final snapshot = <String, Object?>{
+      'operation': operation,
+      'phase': status.phase.name,
+      'error': status.error,
+      'allow_lan': config.patchClashConfig.allowLan,
+      'mixed_port': config.patchClashConfig.mixedPort,
+      'core_ipv6': config.patchClashConfig.ipv6,
+      'dns_ipv6': config.patchClashConfig.dns.ipv6,
+      'vpn_ipv6': config.vpnProps.ipv6,
+      'stack': config.patchClashConfig.tun.stack.name,
+      'route_address': settingsVpnOptions(config).routeAddress,
+      'native': await service?.getSessionSnapshot(),
+    };
+    StartupTrace.mark('settings_probe', extras: snapshot);
+    return snapshot;
   }
 
   static Map<String, Object?> _vpnDump() {

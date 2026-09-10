@@ -82,6 +82,18 @@ class ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         "start" -> {
             handleStart(result)
         }
+        "reconfigureSettings" -> {
+            val options = Gson().fromJson(call.argument<String>("options"),
+                com.follow.clash.service.models.VpnOptions::class.java)
+            val sessionId = call.argument<Number>("sessionId")!!.toLong()
+            launch {
+                val outcome = Service.reconfigureSettings(options, sessionId)
+                State.handleSyncState()
+                result.success(if (outcome.success) "" else
+                    outcome.message ?: "VPN settings application failed")
+            }
+            Unit
+        }
 
         "clearTaskRemovalStop" -> {
             handleClearTaskRemovalStop(result)

@@ -73,6 +73,13 @@ class Service {
     return await methodChannel.invokeMethod<bool>('stop') ?? false;
   }
 
+  Future<String> reconfigureSettings(VpnOptions options, int sessionId) async {
+    return await methodChannel.invokeMethod<String>('reconfigureSettings', {
+      'options': json.encode(options),
+      'sessionId': sessionId,
+    }) ?? 'VPN settings application was not acknowledged';
+  }
+
   Future<String?> init() async {
     return methodChannel.invokeMethod<String>('init');
   }

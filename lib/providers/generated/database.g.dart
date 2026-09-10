@@ -292,7 +292,7 @@ final class ProfilesProvider
   }
 }
 
-String _$profilesHash() => r'cbafe222db3ee0c8455ed3f099c149d3fbd51604';
+String _$profilesHash() => r'd7725d006ff77f01334544c4eeb89af317e6e9fd';
 
 abstract class _$Profiles extends $Notifier<List<Profile>> {
   List<Profile> build();
@@ -600,7 +600,7 @@ final class ProfileCustomRulesProvider
 }
 
 String _$profileCustomRulesHash() =>
-    r'ff60ec05732c7eeaea636af2ca35022477cf9e8a';
+    r'c401a7335653461c4adb5eeb969626708c17d0f5';
 
 final class ProfileCustomRulesFamily extends $Family
     with

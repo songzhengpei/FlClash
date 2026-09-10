@@ -304,54 +304,15 @@ class VpnService : SystemVpnService(), IBaseService, CoroutineScope {
             Log.d(
                 "addAddress", "address: ${cidr.address} prefixLength:${cidr.prefixLength}"
             )
-            val routeAddress = options.getIpv4RouteAddress()
-            if (routeAddress.isNotEmpty()) {
-                try {
-                    routeAddress.forEach { i ->
-                        Log.d(
-                            "addRoute4", "address: ${i.address} prefixLength:${i.prefixLength}"
-                        )
-                        addRoute(i.address, i.prefixLength)
-                    }
-                } catch (_: Exception) {
-                    addRoute(NET_ANY, 0)
-                }
-            } else {
-                addRoute(NET_ANY, 0)
-            }
+            val routes4 = options.getIpv4RouteAddress()
+            if (routes4.isEmpty()) addRoute(NET_ANY, 0)
+            else routes4.forEach { addRoute(it.address, it.prefixLength) }
             if (options.ipv6) {
-                try {
-                    val cidr = IPV6_ADDRESS.toCIDR()
-                    Log.d(
-                        "addAddress6", "address: ${cidr.address} prefixLength:${cidr.prefixLength}"
-                    )
-                    addAddress(cidr.address, cidr.prefixLength)
-                } catch (_: Exception) {
-                    Log.d(
-                        "addAddress6", "IPv6 is not supported."
-                    )
-                }
-
-                try {
-                    val routeAddress = options.getIpv6RouteAddress()
-                    if (routeAddress.isNotEmpty()) {
-                        try {
-                            routeAddress.forEach { i ->
-                                Log.d(
-                                    "addRoute6",
-                                    "address: ${i.address} prefixLength:${i.prefixLength}"
-                                )
-                                addRoute(i.address, i.prefixLength)
-                            }
-                        } catch (_: Exception) {
-                            addRoute("::", 0)
-                        }
-                    } else {
-                        addRoute(NET_ANY6, 0)
-                    }
-                } catch (_: Exception) {
-                    addRoute(NET_ANY6, 0)
-                }
+                val address6 = IPV6_ADDRESS.toCIDR()
+                addAddress(address6.address, address6.prefixLength)
+                val routes6 = options.getIpv6RouteAddress()
+                if (routes6.isEmpty()) addRoute(NET_ANY6, 0)
+                else routes6.forEach { addRoute(it.address, it.prefixLength) }
             }
             addDnsServer(DNS)
             if (options.ipv6) {

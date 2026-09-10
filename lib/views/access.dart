@@ -1,3 +1,4 @@
+import 'package:fl_clash/services/settings/settings_contract.dart';
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
@@ -161,25 +162,7 @@ class _AccessViewState extends ConsumerState<AccessView> {
   AccessControlProps _getRealAccessControlProps(
     AccessControlProps accessControl,
   ) {
-    final packages = ref.read(packagesProvider);
-    if (packages.isEmpty) {
-      return accessControl;
-    }
-    final viewPackageNames = packages
-        .getViewList(
-          pinedList: [],
-          sortType: accessControl.sort,
-          isFilterSystemApp: accessControl.isFilterSystemApp,
-          isFilterNonInternetApp: accessControl.isFilterNonInternetApp,
-        )
-        .map((item) => item.packageName)
-        .toSet();
-    return accessControl.copyWithNewList(
-      accessControl.currentList
-          .where((item) => viewPackageNames.contains(item))
-          .toList()
-        ..sort(),
-    );
+    return preserveAccessSelection(accessControl);
   }
 
   void _handleSave() {
@@ -438,6 +421,15 @@ class _AccessViewState extends ConsumerState<AccessView> {
           mainAxisSize: MainAxisSize.min,
           children: [
             _buildBannerBar(mode, valueList.length, hasChanges: hasChanges),
+            if (hiddenAccessSelectionCount(accessControl, viewPackageNameList) > 0)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: Text(
+                  Localizations.localeOf(context).languageCode == 'zh'
+                    ? '已保留 ${hiddenAccessSelectionCount(accessControl, viewPackageNameList)} 个未显示的已选应用'
+                    : '${hiddenAccessSelectionCount(accessControl, viewPackageNameList)} hidden selections retained',
+                ),
+              ),
             const SizedBox(height: 6),
             Expanded(
               child: DisabledMask(

@@ -10,6 +10,7 @@ import 'package:fl_clash/database/database.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/services/mihomo_config/runtime_config_patch.dart';
+import 'package:fl_clash/services/settings/settings_contract.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart';
@@ -196,7 +197,8 @@ Future<VM2<String, String>> _makeRealProfileTask(
   }
   final isEnableDns = rawConfig['dns']['enable'] == true;
   const systemDns = 'system://';
-  if (overrideDns || !isEnableDns) {
+  if (dnsSettingsSource(sourceEnabled: isEnableDns, overrideDns: overrideDns) !=
+      DnsSettingsSource.subscription) {
     final dns = switch (!isEnableDns) {
       true => realPatchConfig.dns.copyWith(
         nameserver: [...realPatchConfig.dns.nameserver, systemDns],

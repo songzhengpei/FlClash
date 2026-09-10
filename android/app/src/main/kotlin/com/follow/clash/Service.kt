@@ -180,6 +180,15 @@ object Service {
             ServiceOperationResult.failure(ServiceErrorCode.SERVICE_DISCONNECTED, it.message)
         }
     }
+    suspend fun reconfigureSettings(options: VpnOptions, sessionId: Long): ServiceOperationResult {
+        return delegate.useService(timeoutMillis = 30_000L) {
+            awaitOperationResult { callback ->
+                it.reconfigureSettings(options, sessionId, callback)
+            }
+        }.getOrElse {
+            ServiceOperationResult.failure(ServiceErrorCode.SERVICE_DISCONNECTED, it.message)
+        }
+    }
     suspend fun clearTaskRemovalStop(): Boolean {
         return delegate.useService {
             it.clearTaskRemovalStop()

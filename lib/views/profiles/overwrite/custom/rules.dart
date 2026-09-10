@@ -601,7 +601,11 @@ class _AddOrEditRuleViewState extends ConsumerState<_AddOrEditRuleView> {
     final appLocalizations = context.appLocalizations;
     return _buildItem(
       title: Text(appLocalizations.noResolveHostname),
-      trailing: Switch(value: noResolve ?? false, onChanged: (_) {}),
+      trailing: Switch(value: noResolve ?? false, onChanged: (value) {
+        ref.read(ruleProvider.notifier).update(
+          (state) => state.copyWith(noResolve: value),
+        );
+      }),
     );
   }
 
@@ -609,7 +613,11 @@ class _AddOrEditRuleViewState extends ConsumerState<_AddOrEditRuleView> {
     final appLocalizations = context.appLocalizations;
     return _buildItem(
       title: Text(appLocalizations.matchSourceIp),
-      trailing: Switch(value: src ?? false, onChanged: (_) {}),
+      trailing: Switch(value: src ?? false, onChanged: (value) {
+        ref.read(ruleProvider.notifier).update(
+          (state) => state.copyWith(src: value),
+        );
+      }),
     );
   }
 

@@ -26,4 +26,5 @@ interface IRemoteInterface {
     boolean isSmartStopped();
     void updateSmartPauseConfig(boolean enabled, in List<String> trustedNetworks, boolean closeConnections);
     void reevaluateSmartPause(in IResultInterface result);
+    void reconfigureSettings(in VpnOptions options, long expectedSessionId, in IOperationResultInterface result);
 }

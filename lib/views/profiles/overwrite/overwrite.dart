@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/providers/settings_apply.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/views/profiles/preview.dart';
 import 'package:fl_clash/widgets/surge/surge.dart';
@@ -59,7 +60,8 @@ class _OverwriteViewState extends ConsumerState<OverwriteView> {
   @override
   void dispose() {
     super.dispose();
-    globalState.container.read(setupActionProvider.notifier).autoApplyProfile();
+    globalState.container.read(settingsApplyProvider.notifier)
+        .savedEdit(widget.profileId, () async {});
   }
 }
 

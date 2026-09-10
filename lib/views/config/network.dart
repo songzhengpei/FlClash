@@ -1,3 +1,4 @@
+import 'package:fl_clash/services/settings/settings_contract.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/providers/config.dart';
@@ -137,7 +138,7 @@ class Ipv6Item extends ConsumerWidget {
     final ipv6 = ref.watch(vpnSettingProvider.select((state) => state.ipv6));
     return ListItem.switchItem(
       title: const Text('IPv6'),
-      subtitle: Text(appLocalizations.ipv6InboundDesc),
+      subtitle: Text('${appLocalizations.ipv6InboundDesc} · ${Localizations.localeOf(context).languageCode == 'zh' ? '控制 VPN IPv6 接管，修改后自动重连' : 'VPN IPv6 capture; reconnects automatically'}'),
       delegate: SwitchDelegate(
         value: ipv6,
         onChanged: (bool value) async {
@@ -241,19 +242,11 @@ class DNSHijackingItem extends ConsumerWidget {
   @override
   Widget build(BuildContext context, ref) {
     final appLocalizations = context.appLocalizations;
-    final dnsHijacking = ref.watch(
-      vpnSettingProvider.select((state) => state.dnsHijacking),
-    );
-    return ListItem<RouteMode>.switchItem(
+    return ListItem(
       title: Text(appLocalizations.dnsHijacking),
-      delegate: SwitchDelegate(
-        value: dnsHijacking,
-        onChanged: (value) async {
-          ref
-              .read(vpnSettingProvider.notifier)
-              .update((state) => state.copyWith(dnsHijacking: value));
-        },
-      ),
+      subtitle: Text(Localizations.localeOf(context).languageCode == 'zh'
+          ? '自动接管 · VPN 运行时接管普通 DNS，保障解析兼容性'
+          : 'Automatic · captures ordinary DNS while VPN is active'),
     );
   }
 }
@@ -314,6 +307,7 @@ class RouteAddressItem extends ConsumerWidget {
         widget: ListInputPage(
           title: appLocalizations.routeAddress,
           items: routeAddress,
+          validator: validateRouteCidr,
           valueLabel: appLocalizations.routeAddress,
           addTitle: appLocalizations.routeAddress,
           showFieldLabels: false,

@@ -16,6 +16,8 @@ import 'package:fl_clash/plugins/app.dart';
 import 'package:fl_clash/plugins/service.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/services/lifecycle_intent.dart';
+import 'package:fl_clash/services/settings/settings_contract.dart';
+import 'package:fl_clash/services/settings/settings_runtime.dart';
 import 'package:fl_clash/services/backup/restore_service.dart';
 import 'package:fl_clash/services/backup/backup_file_guard.dart';
 import 'package:fl_clash/services/backup/unified_backup_service.dart';
@@ -1527,6 +1529,141 @@ class SetupAction extends _$SetupAction {
     return outcome;
   }
 
+  /// Settings reuse the profile commit gate. A candidate and its rollback
+  /// never race another profile's write to the shared runtime file.
+  Future<void> applySettingsSnapshot({
+    required Config candidate,
+    required SettingsApplyKind kind,
+    required bool Function() isLatest,
+  }) async {
+    final generation = _runtimeConfigCommitOwner.beginRequest();
+    final lifecycle = lifecycleGeneration;
+    final profileId = candidate.currentProfileId;
+    bool active() => ref.read(currentProfileIdProvider) == profileId &&
+        isCurrentLifecycle(lifecycle) &&
+        !ref.read(isSmartStoppedProvider);
+    if (profileId == null || !active() || !ref.read(isStartProvider)) {
+      throw const SettingsApplyCancelled();
+    }
+    final savedRevision = settingsSavedEditRevision;
+    final setupState = await ref.read(setupStateProvider(profileId).future);
+    final routes = settingsRouteAddresses(candidate);
+    for (final route in routes) {
+      final error = validateRouteCidr(route);
+      if (error != null) throw SettingsApplyFailure(error);
+    }
+    final materialized = await getProfile(
+      setupState: setupState,
+      patchConfig: candidate.patchClashConfig.copyWith.tun(enable: false),
+      settingsSnapshot: candidate,
+    );
+    final validation = await coreController.validateConfigWithData(materialized.a);
+    if (validation.isNotEmpty) throw SettingsApplyFailure(validation);
+    final snapshot = await service?.getSessionSnapshot();
+    if (!active() || !isLatest() || !ref.read(isStartProvider) ||
+        (system.isAndroid && snapshot?['state'] != 'RUNNING')) {
+      throw const SettingsApplyCancelled();
+    }
+    final sessionId = snapshot?['sessionId'] as int? ?? 0;
+    final result = await _runtimeConfigCommitOwner.commit(
+      generation: generation,
+      transaction: (_) async {
+        if (!active() || !isLatest() || !ref.read(isStartProvider)) {
+          throw const SettingsApplyCancelled();
+        }
+        final previous = settingsRuntimeRecord.value;
+        if (previous == null || previous.config.currentProfileId != profileId) {
+          throw const SettingsApplyFailure('No acknowledged runtime configuration');
+        }
+        final configFile = File(await appPath.configFilePath);
+        var touched = false;
+        var nativeApplied = false;
+        try {
+          if (!active()) throw const SettingsApplyCancelled();
+          touched = true;
+          await configFile.safeWriteAsString(materialized.a);
+          String message;
+          if (kind == SettingsApplyKind.hot) {
+            final patch = candidate.patchClashConfig;
+            message = await coreController.updateConfig(UpdateParams(
+              tun: patch.tun.getRealTun(candidate.networkProps.routeMode).copyWith(enable: false),
+              allowLan: patch.allowLan,
+              findProcessMode: patch.findProcessMode,
+              mode: patch.mode,
+              logLevel: patch.logLevel,
+              ipv6: patch.ipv6,
+              tcpConcurrent: patch.tcpConcurrent,
+              externalController: patch.externalController,
+              unifiedDelay: patch.unifiedDelay,
+              mixedPort: patch.mixedPort,
+            ));
+          } else {
+            message = await coreController.setupConfig(params: _setupParams, setupState: setupState);
+          }
+          if (message.isNotEmpty) throw StateError(message);
+          if (!active()) throw const SettingsApplyCancelled();
+          if (system.isAndroid) {
+            final native = await service!.getSessionSnapshot();
+            if (native['state'] != 'RUNNING' || native['sessionId'] != sessionId) {
+              throw const SettingsApplyCancelled();
+            }
+            if (kind == SettingsApplyKind.vpn) {
+              final error = await service!.reconfigureSettings(settingsVpnOptions(candidate), sessionId);
+              if (error.isNotEmpty) throw StateError(error);
+              nativeApplied = true;
+            }
+            final confirmed = await service!.getSessionSnapshot();
+            if (!active() || confirmed['state'] != 'RUNNING' || confirmed['sessionId'] != sessionId) {
+              throw const SettingsApplyCancelled();
+            }
+            final sync = await service!.syncState(ref.read(sharedStateProvider).copyWith(
+              vpnOptions: settingsVpnOptions(candidate),
+            ));
+            if (sync != '') throw StateError(sync ?? 'Settings sync not acknowledged');
+          }
+          globalState.lastConfigMd5 = materialized.b;
+          settingsRuntimeRecord.value = SettingsRuntimeRecord(candidate, materialized.a, savedEditRevision: savedRevision);
+          ref.read(checkIpNumProvider.notifier).add();
+          NetworkDiagnosticsRevision.bump(reason: 'settings_applied');
+        } catch (error) {
+          Object? restoreError;
+          if (touched) {
+            try {
+              // Restoring the core does not start/resume the VPN. Even when a
+              // newer stop wins, avoid leaving a failed YAML on disk.
+              await configFile.safeWriteAsString(previous.yaml);
+              final message = await coreController.setupConfig(params: _setupParams, setupState: setupState);
+              if (message.isNotEmpty) throw StateError(message);
+              globalState.lastConfigMd5 = previous.yaml.toMd5();
+              if (system.isAndroid) {
+                final native = await service!.getSessionSnapshot();
+                if (active() && native['state'] == 'RUNNING' && native['sessionId'] == sessionId) {
+                  if (nativeApplied) {
+                    final error = await service!.reconfigureSettings(settingsVpnOptions(previous.config), sessionId);
+                    if (error.isNotEmpty) throw StateError(error);
+                  }
+                  await service!.syncState(ref.read(sharedStateProvider).copyWith(
+                    vpnOptions: settingsVpnOptions(previous.config),
+                  ));
+                } else if (error is! SettingsApplyCancelled) {
+                  throw StateError('VPN did not recover its running session');
+                }
+              }
+            } catch (failure) {
+              restoreError = failure;
+            }
+          }
+          if (system.isAndroid) await reconcileNativeSession();
+          if (error is SettingsApplyCancelled && restoreError == null) rethrow;
+          throw SettingsApplyFailure(error, restoreError: restoreError);
+        }
+      },
+    );
+    if (result == RuntimeConfigCommitOutcome.superseded) {
+      throw const SettingsApplyCancelled();
+    }
+  }
+
   Future<void> applyProfileForDisplay({bool silence = true}) async {
     await _applyProfileForDisplayOutcome(silence: silence);
   }
@@ -1574,16 +1711,21 @@ class SetupAction extends _$SetupAction {
   Future<VM2<String, String>> getProfile({
     required SetupState setupState,
     required PatchClashConfig patchConfig,
+    Config? settingsSnapshot,
+    void Function(bool enabled)? onDnsSource,
   }) async {
     final profileId = setupState.profileId;
     if (profileId == null) return const VM2('', '');
     final defaultUA = globalState.packageInfo.ua;
-    final networkVM2 = ref.read(
+    final networkVM2 = settingsSnapshot != null
+        ? VM2(settingsSnapshot.networkProps.appendSystemDns, settingsSnapshot.networkProps.routeMode)
+        : ref.read(
       networkSettingProvider.select(
         (state) => VM2(state.appendSystemDns, state.routeMode),
       ),
     );
-    final overrideDns = ref.read(overrideDnsProvider);
+    final bool overrideDns = settingsSnapshot == null
+        ? ref.read(overrideDnsProvider) : settingsSnapshot.overrideDns;
     final appendSystemDns = networkVM2.a;
     final routeMode = networkVM2.b;
     String? scriptContent;
@@ -1687,6 +1829,7 @@ class SetupAction extends _$SetupAction {
         },
       );
     }
+    onDnsSource?.call(rawConfig['dns']?['enable'] == true);
     final directory = await appPath.profilesPath;
     final res = makeRealProfileTask(
       MakeRealProfileState(
@@ -1774,8 +1917,21 @@ class SetupAction extends _$SetupAction {
         profile = ref.read(profilesProvider).getProfile(profile.id);
       }
       commonPrint.log('setup ===> ${profile?.id}');
+      final desiredSettings = ref.read(configProvider);
+      final acknowledgedSettings = settingsRuntimeRecord.value;
+      // Background/profile refreshes use the last successful settings while
+      // the settings queue owns an uncommitted edit. Explicit starts use the
+      // saved preferences. This also preserves the one-second quiet period.
+      final settingsSnapshot = preloadInvoke == null &&
+              ref.read(isStartProvider) && acknowledgedSettings != null
+          ? acknowledgedSettings.config.copyWith(
+              currentProfileId: desiredSettings.currentProfileId,
+            )
+          : desiredSettings;
       final PatchClashConfig patchConfig =
-          patchConfigOverride ?? ref.read(patchClashConfigProvider);
+          settingsSnapshot.patchClashConfig.copyWith.tun(
+            enable: patchConfigOverride?.tun.enable ?? settingsSnapshot.patchClashConfig.tun.enable,
+          );
       late final bool realTunEnable;
       if (requestAdmin) {
         final res = await _requestAdmin(patchConfig.tun.enable);
@@ -1790,6 +1946,7 @@ class SetupAction extends _$SetupAction {
         realTunEnable = false;
       }
       final realPatchConfig = patchConfig.copyWith.tun(enable: realTunEnable);
+      final savedRevision = settingsSavedEditRevision;
       final setupState = await ref.read(setupStateProvider(profile?.id).future);
       if (system.isAndroid) {
         globalState.lastVpnState = ref.read(vpnStateProvider);
@@ -1799,6 +1956,7 @@ class SetupAction extends _$SetupAction {
       final vm2 = await getProfile(
         setupState: setupState,
         patchConfig: realPatchConfig,
+        settingsSnapshot: settingsSnapshot,
       );
       StartupTrace.mark('getProfile');
       final yamlString = vm2.a;
@@ -1834,6 +1992,7 @@ class SetupAction extends _$SetupAction {
                 outcome = SetupConfigOutcome.superseded;
                 return;
               }
+              settingsRuntimeRecord.value = SettingsRuntimeRecord(settingsSnapshot, yamlString, savedEditRevision: savedRevision);
               outcome = SetupConfigOutcome.unchanged;
               return;
             }
@@ -1867,6 +2026,7 @@ class SetupAction extends _$SetupAction {
               outcome = SetupConfigOutcome.superseded;
               return;
             }
+            settingsRuntimeRecord.value = SettingsRuntimeRecord(settingsSnapshot, yamlString, savedEditRevision: savedRevision);
             ref.read(checkIpNumProvider.notifier).add();
             NetworkDiagnosticsRevision.bump(reason: 'profile_apply');
             await onUpdated?.call(

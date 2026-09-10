@@ -19,6 +19,9 @@ import 'package:intl/intl.dart';
 import 'config/advanced.dart';
 import 'developer.dart';
 import 'theme.dart';
+import 'package:fl_clash/providers/settings_apply.dart';
+import 'package:fl_clash/services/settings/settings_contract.dart';
+import 'package:fl_clash/widgets/settings_apply_status.dart';
 
 class ToolsView extends ConsumerStatefulWidget {
   const ToolsView({super.key});
@@ -327,12 +330,19 @@ class _DnsItem extends StatelessWidget {
             icon: SurgeIcons.replay,
             tooltip: appLocalizations.reset,
             onPressed: () async {
+              final container = ProviderScope.containerOf(context);
+              final source = container.read(dnsSettingsSourceProvider).asData?.value;
+              if (source == null || source == DnsSettingsSource.subscription) {
+                globalState.showNotifier(settingsText(context,
+                  '当前未采用 APP DNS，请先确认来源或开启覆写。',
+                  'APP DNS is not active; resolve the source or enable override first.'));
+                return;
+              }
               final res = await globalState.showMessage(
                 title: appLocalizations.reset,
                 message: TextSpan(text: appLocalizations.resetTip),
               );
               if (res != true) return;
-              final container = ProviderScope.containerOf(context);
               container
                   .read(patchClashConfigProvider.notifier)
                   .update((state) => state.copyWith(dns: defaultDns));

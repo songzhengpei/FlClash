@@ -1,3 +1,4 @@
+import 'package:fl_clash/services/settings/settings_contract.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/core/controller.dart';
@@ -527,21 +528,15 @@ SharedState sharedState(Ref ref) {
       (state) => VM2(state.onlyStatisticsProxy, state.testUrl),
     ),
   );
-  final bypassDomain = ref.watch(
-    networkSettingProvider.select((state) => state.bypassDomain),
-  );
-  final clashConfigVM2 = ref.watch(
-    patchClashConfigProvider.select(
-      (state) => VM2(state.tun.stack.name, state.mixedPort),
-    ),
-  );
-  final vpnSetting = ref.watch(vpnSettingProvider);
+
+
+
   final currentProfileName = currentProfileVM2.a;
   final selectedMap = currentProfileVM2.b;
   final onlyStatisticsProxy = appSettingVM3.a;
   final testUrl = appSettingVM3.b;
-  final stack = clashConfigVM2.a;
-  final port = clashConfigVM2.b;
+
+
   return SharedState(
     currentProfileName: currentProfileName,
     onlyStatisticsProxy: onlyStatisticsProxy,
@@ -549,17 +544,7 @@ SharedState sharedState(Ref ref) {
     stopTip: currentAppLocalizations.stopVpn,
     startTip: currentAppLocalizations.startVpn,
     setupParams: SetupParams(selectedMap: selectedMap, testUrl: testUrl),
-    vpnOptions: VpnOptions(
-      enable: vpnSetting.enable,
-      stack: stack,
-      systemProxy: vpnSetting.systemProxy,
-      port: port,
-      ipv6: vpnSetting.ipv6,
-      dnsHijacking: vpnSetting.dnsHijacking,
-      accessControlProps: vpnSetting.accessControlProps,
-      allowBypass: vpnSetting.allowBypass,
-      bypassDomain: bypassDomain,
-    ),
+    vpnOptions: settingsVpnOptions(ref.watch(configProvider)),
   );
 }
 
