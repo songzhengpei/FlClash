@@ -12,6 +12,11 @@ class AppChangelogEntry {
 
 const appChangelogEntries = <AppChangelogEntry>[
   AppChangelogEntry(
+    version: 'v2.2.0',
+    date: '2026-09-09',
+    changes: ["优化大量订阅下代理界面卡顿问题", "整理了一些启动链路上的时序问题"],
+  ),
+  AppChangelogEntry(
     version: 'v2.1.9',
     date: '2026-09-07',
     changes: ['降低订阅同步内存占用', '优化代理被回收后的恢复'],
