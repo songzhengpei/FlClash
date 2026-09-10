@@ -304,7 +304,7 @@ abstract final class SlclashTypeScale {
   );
   static const dashboardLatencyValue = TextStyle(
     fontSize: 12,
-    height: 1.3333,
+    height: 0,
     fontWeight: FontWeight.w500,
     letterSpacing: _letterSpacing,
   );

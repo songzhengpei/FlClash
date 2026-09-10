@@ -1226,9 +1226,7 @@ class PlatformLatencyPanel extends StatelessWidget {
   TextStyle _valueStyle(BuildContext context) {
     // A font-size multiplier is not a reliable ascent/descent budget for
     // OEM or user-selected fonts. Use the actual font's vertical metrics.
-    return context.typography.dashboardLatencyValue.copyWith(
-      height: kTextHeightNone,
-    );
+    return context.typography.dashboardLatencyValue;
   }
 
   double _sharedValueWidth(BuildContext context) {
@@ -1240,9 +1238,7 @@ class PlatformLatencyPanel extends StatelessWidget {
       maxLines: 1,
     );
     var style = DefaultTextStyle.of(context).style.merge(_valueStyle(context));
-    if (MediaQuery.boldTextOf(context)) {
-      style = style.merge(const TextStyle(fontWeight: FontWeight.bold));
-    }
+    style = context.typography.resolveBoldText(context, style);
     for (final target in targets) {
       painter.text = TextSpan(
         text: _valueLabel(results[target.name]),
