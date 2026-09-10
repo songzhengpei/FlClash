@@ -1238,7 +1238,7 @@ class PlatformLatencyPanel extends StatelessWidget {
       maxLines: 1,
     );
     var style = DefaultTextStyle.of(context).style.merge(_valueStyle(context));
-    style = context.typography.resolveBoldText(context, style);
+    style = context.resolveBoldText(style);
     for (final target in targets) {
       painter.text = TextSpan(
         text: _valueLabel(results[target.name]),
