@@ -12,6 +12,11 @@ class AppChangelogEntry {
 
 const appChangelogEntries = <AppChangelogEntry>[
   AppChangelogEntry(
+    version: 'v2.2.1',
+    date: '2026-09-10',
+    changes: ["修复网络、DNS、自定义规则等设置未正确生效的问题；优化仪表盘延迟数值显示，避免文字拥挤或裁切。"],
+  ),
+  AppChangelogEntry(
     version: 'v2.2.0',
     date: '2026-09-09',
     changes: ["优化大量订阅下代理界面卡顿问题", "整理了一些启动链路上的时序问题"],
