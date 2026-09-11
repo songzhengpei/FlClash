@@ -314,7 +314,6 @@ bool shouldNotifyRemoteServiceLoss({
   return !isRemoteServiceDisconnectMessage(message);
 }
 
-@visibleForTesting
 bool shouldHandleCoreCrash({
   required bool coreConnected,
   required bool hasProtectableSession,
@@ -322,7 +321,6 @@ bool shouldHandleCoreCrash({
   return coreConnected || hasProtectableSession;
 }
 
-@visibleForTesting
 bool shouldNotifyCoreCrash({
   required bool hasProtectableSession,
   required bool appResumed,
