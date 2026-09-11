@@ -69,6 +69,16 @@ class ProfilesDao extends DatabaseAccessor<Database> with _$ProfilesDaoMixin {
     return stmt.map((item) => item.toProfile());
   }
 
+  /// Sorting changes only order, never stale profile metadata or deleted rows.
+  Future<void> reorderIds(List<int> ids) async {
+    await transaction(() async {
+      for (var index = 0; index < ids.length; index++) {
+        await (update(profiles)..where((row) => row.id.equals(ids[index])))
+            .write(ProfilesCompanion(order: Value(index)));
+      }
+    });
+  }
+
   Future<void> setAll(Iterable<Profile> profiles) async {
     await batch((b) async {
       setAllWithBatch(b, profiles);

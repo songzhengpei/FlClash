@@ -206,6 +206,17 @@ Future<BackupRestoreOutcome> activateCommittedRestore({
   }
 }
 
+/// Source import needs a usable core, but must not start a VPN session.
+Future<T> runProfileSourceWithReadyCore<T>({
+  required Future<bool> Function() ensureReady,
+  required Future<T> Function() operation,
+}) async {
+  if (!await ensureReady()) {
+    throw StateError('Proxy core initialization failed. Please retry.');
+  }
+  return operation();
+}
+
 Future<bool> ensureRestoreValidationCoreReady({
   required bool isConnected,
   required Future<bool> Function() connectCore,
@@ -3829,6 +3840,15 @@ class ProxiesAction extends _$ProxiesAction {
 
 @Riverpod(keepAlive: true)
 class ProfilesAction extends _$ProfilesAction {
+  // Preparing the core is independent of starting/resuming the VPN.
+  Future<T> _withSourceCore<T>(Future<T> Function() operation) =>
+      runProfileSourceWithReadyCore(
+        ensureReady: ref.read(coreActionProvider.notifier).ensureCoreReady,
+        operation: operation,
+      );
+
+  Future<String> _validateSource(String path) =>
+      _withSourceCore(() => coreController.validateConfig(path));
   @override
   void build() {}
 
@@ -3972,7 +3992,7 @@ class ProfilesAction extends _$ProfilesAction {
         staged = await stageProfileFile(
           targetPath: profilePath,
           bytes: response.bytes,
-          validate: coreController.validateConfig,
+          validate: _validateSource,
         );
       } catch (_) {
         if (!profileSourceMutationOwner.isCurrent(token)) {
@@ -4037,7 +4057,7 @@ class ProfilesAction extends _$ProfilesAction {
       staged = await stageProfileFile(
         targetPath: profilePath,
         bytes: bytes,
-        validate: coreController.validateConfig,
+        validate: _validateSource,
       );
     } catch (_) {
       if (!profileSourceMutationOwner.isCurrent(token)) {
@@ -4072,7 +4092,9 @@ class ProfilesAction extends _$ProfilesAction {
     final profile = await globalState.loadingRun(
       tag: LoadingTag.profiles,
       () async {
-        return Profile.normal(label: platformFile?.name).saveFile(bytes);
+        return _withSourceCore(
+          () => Profile.normal(label: platformFile?.name).saveFile(bytes),
+        );
       },
       title: currentAppLocalizations.addProfile,
     );
@@ -4105,7 +4127,7 @@ class ProfilesAction extends _$ProfilesAction {
               autoUpdate: autoUpdate,
               autoUpdateDuration: autoUpdateDuration,
             );
-        return profile.update();
+        return _withSourceCore(profile.update);
       },
       title: currentAppLocalizations.addProfile,
     );

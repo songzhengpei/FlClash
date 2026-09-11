@@ -1,3 +1,4 @@
+import 'package:fl_clash/services/profile_order.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -409,8 +410,7 @@ class _ProfilesManageSheetState extends State<_ProfilesManageSheet> {
 
   void _handleReorder(int oldIndex, int newIndex) {
     setState(() {
-      final profile = _profiles.removeAt(oldIndex);
-      _profiles.insert(newIndex, profile);
+      reorderProfileList(_profiles, oldIndex, newIndex);
     });
     globalState.container.read(profilesProvider.notifier).reorder(_profiles);
   }
@@ -2360,8 +2360,7 @@ class _ReorderableProfilesSheetState extends State<ReorderableProfilesSheet> {
           },
           onReorder: (oldIndex, newIndex) {
             setState(() {
-              final profile = profiles.removeAt(oldIndex);
-              profiles.insert(newIndex, profile);
+              reorderProfileList(profiles, oldIndex, newIndex);
             });
           },
           itemBuilder: (_, index) {

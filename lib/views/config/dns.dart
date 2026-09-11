@@ -9,7 +9,9 @@ import 'package:fl_clash/services/settings/settings_contract.dart';
 import 'package:fl_clash/widgets/settings_apply_status.dart';
 
 class OverrideItem extends ConsumerWidget {
-  const OverrideItem({super.key});
+  const OverrideItem({super.key, this.description});
+
+  final String? description;
 
   @override
   Widget build(BuildContext context, ref) {
@@ -17,7 +19,7 @@ class OverrideItem extends ConsumerWidget {
     final override = ref.watch(overrideDnsProvider);
     return ListItem.switchItem(
       title: Text(appLocalizations.overrideDns),
-      subtitle: Text(appLocalizations.overrideDnsDesc),
+      subtitle: Text(description ?? settingsText(context, '使用 APP DNS 预设替代订阅 DNS', 'Use APP DNS presets instead of subscription DNS')),
       delegate: SwitchDelegate(
         value: override,
         onChanged: (bool value) async {
@@ -120,13 +122,7 @@ class IPv6Item extends ConsumerWidget {
     );
     return ListItem.switchItem(
       title: const Text('IPv6'),
-      subtitle: Text(settingsText(context,
-        ref.watch(patchClashConfigProvider.select((s) => s.ipv6))
-          ? '控制 DNS AAAA 应答；还需网络页启用 IPv6 接管'
-          : '基础 IPv6 已关闭：当前不会启用 AAAA 应答，保留此预设',
-        ref.watch(patchClashConfigProvider.select((s) => s.ipv6))
-          ? 'DNS AAAA answers; VPN IPv6 capture is configured separately'
-          : 'Core IPv6 is off: AAAA disabled; this preference is retained')),
+      subtitle: Text(settingsText(context, '允许 DNS 返回 IPv6 地址（AAAA）', 'Allow DNS IPv6 answers (AAAA)')),
       delegate: SwitchDelegate(
         value: ipv6,
         onChanged: (bool value) async {
@@ -694,14 +690,14 @@ class DnsListView extends ConsumerWidget {
     final value = source.asData?.value;
     final editable = value == DnsSettingsSource.override || value == DnsSettingsSource.automatic;
     final label = switch (value) {
-      DnsSettingsSource.subscription => settingsText(context, '当前采用订阅 DNS。开启覆写后可编辑下方 APP 预设。', 'Using subscription DNS. Enable override to edit APP presets.'),
-      DnsSettingsSource.override => settingsText(context, '采用 APP DNS 覆写，修改后自动应用。', 'Using APP DNS override; changes apply automatically.'),
-      DnsSettingsSource.automatic => settingsText(context, '订阅未启用 DNS：采用 APP 自动补全，包含系统 DNS。', 'Source DNS is disabled: APP fallback includes system DNS.'),
+      DnsSettingsSource.subscription => settingsText(context, '当前采用订阅 DNS，开启覆写可编辑下方预设', 'Using subscription DNS. Enable override to edit APP presets.'),
+      DnsSettingsSource.override => settingsText(context, '当前采用 APP DNS，可编辑下方预设', 'Using APP DNS override; changes apply automatically.'),
+      DnsSettingsSource.automatic => settingsText(context, '订阅未启用 DNS，当前由 APP 自动补全', 'Source DNS is disabled: APP fallback includes system DNS.'),
+      null when ref.watch(currentProfileIdProvider) == null => settingsText(context, '请先添加订阅，再配置 DNS 覆写', 'Add a subscription before configuring DNS override'),
       null => settingsText(context, source.isLoading ? '正在确认 DNS 来源…' : 'DNS 来源暂不可用，请选择订阅并等待内核就绪。', source.isLoading ? 'Resolving DNS source…' : 'DNS source unavailable; select a profile and wait for the core.'),
     };
     return generateListView([
-      const OverrideItem(),
-      ListItem(title: Text(label), subtitle: source.hasError ? Text('${source.error}') : null),
+      OverrideItem(description: label),
       if (source.hasError || (value == null && !source.isLoading))
         TextButton(onPressed: () => ref.invalidate(dnsSettingsSourceProvider),
           child: Text(settingsText(context, '重试', 'Retry'))),
