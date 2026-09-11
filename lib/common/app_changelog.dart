@@ -12,6 +12,18 @@ class AppChangelogEntry {
 
 const appChangelogEntries = <AppChangelogEntry>[
   AppChangelogEntry(
+    version: 'v2.2.2',
+    date: '2026-09-11',
+    changes: [
+      "解决了一些影响使用体验的bug",
+      "修复订阅排序偶发失效",
+      "调整主题色彩预设",
+      "优化首次订阅导入的内核预热",
+      "优化UI文案显示",
+      "减少弹窗噪音",
+    ],
+  ),
+  AppChangelogEntry(
     version: 'v2.2.1',
     date: '2026-09-10',
     changes: ["修复网络、DNS、自定义规则等设置未正确生效的问题；优化仪表盘延迟数值显示，避免文字拥挤或裁切。"],
