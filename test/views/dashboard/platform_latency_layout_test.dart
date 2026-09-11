@@ -41,7 +41,6 @@ void main() {
                         .copyWith(
                           fontFamily: 'LatencyTestFont',
                           letterSpacing: 1.5,
-                          height: 0.7,
                         ),
                   ),
                 ],
@@ -115,7 +114,7 @@ void main() {
           expect(topLeft.dx, greaterThanOrEqualTo(panelRect.left));
           expect(bottomRight.dx, lessThanOrEqualTo(panelRect.right + 0.01));
           // Natural font ascent/descent must fit with breathing room inside
-          // the fitted paint area, including partially opaque refreshes.
+          // the fitted paint area, including active refreshes.
           for (final value in [label, '123ms', '456ms']) {
             final valueFinder = find.text(value);
             final rendered = tester.renderObject<RenderParagraph>(valueFinder);

@@ -206,6 +206,17 @@ Future<BackupRestoreOutcome> activateCommittedRestore({
   }
 }
 
+/// Source import needs a usable core, but must not start a VPN session.
+Future<T> runProfileSourceWithReadyCore<T>({
+  required Future<bool> Function() ensureReady,
+  required Future<T> Function() operation,
+}) async {
+  if (!await ensureReady()) {
+    throw StateError('Proxy core initialization failed. Please retry.');
+  }
+  return operation();
+}
+
 Future<bool> ensureRestoreValidationCoreReady({
   required bool isConnected,
   required Future<bool> Function() connectCore,
@@ -264,6 +275,62 @@ bool shouldRestoreSmartPaused(
 /// PAUSED reopen must bind/init Flutter Core without starting VPN or applyProfile.
 bool shouldAttachCoreWithoutVpnSetup(String? sessionState) {
   return sessionState == 'PAUSED';
+}
+
+/// Binder death from Android ServiceConnection / ServiceDelegate, not a VPN error.
+@visibleForTesting
+bool isRemoteServiceDisconnectMessage(String message) {
+  final text = message.trim();
+  if (text.isEmpty) return true;
+  return text == 'Service disconnected' ||
+      text == 'Service binding ended unexpectedly' ||
+      text == 'Binder empty' ||
+      text.startsWith('Binder is not of type ') ||
+      text.startsWith('Failed to link to death');
+}
+
+/// This APK already has a session the user would notice disappearing.
+@visibleForTesting
+bool hasProtectableVpnSession({
+  required bool vpnUiRunning,
+  required bool smartPaused,
+  String? nativeSession,
+}) {
+  if (vpnUiRunning || smartPaused) return true;
+  return switch (nativeSession) {
+    'RUNNING' || 'PAUSED' || 'STARTING' || 'STOPPING' => true,
+    _ => false,
+  };
+}
+
+/// Idle preload may bind `:remote` without a VPN. Losing that binder is noise.
+@visibleForTesting
+bool shouldNotifyRemoteServiceLoss({
+  required String message,
+  required bool hasSession,
+}) {
+  if (message.trim().isEmpty) return false;
+  if (hasSession) return true;
+  return !isRemoteServiceDisconnectMessage(message);
+}
+
+@visibleForTesting
+bool shouldHandleCoreCrash({
+  required bool coreConnected,
+  required bool hasProtectableSession,
+}) {
+  return coreConnected || hasProtectableSession;
+}
+
+@visibleForTesting
+bool shouldNotifyCoreCrash({
+  required bool hasProtectableSession,
+  required bool appResumed,
+  required String message,
+}) {
+  return hasProtectableSession &&
+      appResumed &&
+      message.trim().isNotEmpty;
 }
 
 /// After native smartResume, startListener only when Core is already attached.
@@ -821,6 +888,12 @@ class SetupAction extends _$SetupAction {
   DateTime? _lastRuntimeUpdateAt;
 
   bool get isStart => startTime != null && startTime!.isBeforeNow;
+
+  bool get hasProtectableVpnSessionNow => hasProtectableVpnSession(
+    vpnUiRunning: ref.read(isStartProvider),
+    smartPaused: ref.read(isSmartStoppedProvider),
+    nativeSession: _sessionState,
+  );
 
   @override
   void build() {
@@ -2413,7 +2486,20 @@ class CoreAction extends _$CoreAction {
     }
     if (message.isNotEmpty) {
       ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
-      globalState.showNotifier(message);
+      final hasSession = ref
+          .read(setupActionProvider.notifier)
+          .hasProtectableVpnSessionNow;
+      if (shouldNotifyRemoteServiceLoss(
+        message: message,
+        hasSession: hasSession,
+      )) {
+        globalState.showNotifier(message);
+      } else {
+        commonPrint.log(
+          'core-connect:suppress-disconnect-notice',
+          logLevel: LogLevel.warning,
+        );
+      }
       commonPrint.log(
         'core-connect:failed elapsedMs=${watch.elapsedMilliseconds}',
         logLevel: LogLevel.error,
@@ -3829,6 +3915,15 @@ class ProxiesAction extends _$ProxiesAction {
 
 @Riverpod(keepAlive: true)
 class ProfilesAction extends _$ProfilesAction {
+  // Preparing the core is independent of starting/resuming the VPN.
+  Future<T> _withSourceCore<T>(Future<T> Function() operation) =>
+      runProfileSourceWithReadyCore(
+        ensureReady: ref.read(coreActionProvider.notifier).ensureCoreReady,
+        operation: operation,
+      );
+
+  Future<String> _validateSource(String path) =>
+      _withSourceCore(() => coreController.validateConfig(path));
   @override
   void build() {}
 
@@ -3972,7 +4067,7 @@ class ProfilesAction extends _$ProfilesAction {
         staged = await stageProfileFile(
           targetPath: profilePath,
           bytes: response.bytes,
-          validate: coreController.validateConfig,
+          validate: _validateSource,
         );
       } catch (_) {
         if (!profileSourceMutationOwner.isCurrent(token)) {
@@ -4037,7 +4132,7 @@ class ProfilesAction extends _$ProfilesAction {
       staged = await stageProfileFile(
         targetPath: profilePath,
         bytes: bytes,
-        validate: coreController.validateConfig,
+        validate: _validateSource,
       );
     } catch (_) {
       if (!profileSourceMutationOwner.isCurrent(token)) {
@@ -4072,7 +4167,9 @@ class ProfilesAction extends _$ProfilesAction {
     final profile = await globalState.loadingRun(
       tag: LoadingTag.profiles,
       () async {
-        return Profile.normal(label: platformFile?.name).saveFile(bytes);
+        return _withSourceCore(
+          () => Profile.normal(label: platformFile?.name).saveFile(bytes),
+        );
       },
       title: currentAppLocalizations.addProfile,
     );
@@ -4105,7 +4202,7 @@ class ProfilesAction extends _$ProfilesAction {
               autoUpdate: autoUpdate,
               autoUpdateDuration: autoUpdateDuration,
             );
-        return profile.update();
+        return _withSourceCore(profile.update);
       },
       title: currentAppLocalizations.addProfile,
     );

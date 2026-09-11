@@ -1202,23 +1202,16 @@ class PlatformLatencyPanel extends StatelessWidget {
         : hasLatency
         ? textColor
         : secondaryTextColor;
-    final opacity = !timedOut && result?.refreshing == true
-        ? (hasLatency ? 0.82 : 0.55)
-        : 1.0;
-    return Opacity(
-      opacity: opacity,
-      // Keep glyph edges away from the opacity layer's raster bounds, even
-      // when a device font has taller ascenders/descenders. This is inside
-      // the shared fit, so all labels retain the same scale and alignment.
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Text(
-          _valueLabel(result),
-          maxLines: 1,
-          softWrap: false,
-          overflow: TextOverflow.visible,
-          style: _valueStyle(context).copyWith(color: color),
-        ),
+    // Refreshing is indicated by the bar, not a different text compositing
+    // path. Keep glyph rendering stable while the route lookup completes.
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Text(
+        _valueLabel(result),
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.visible,
+        style: _valueStyle(context).copyWith(color: color),
       ),
     );
   }

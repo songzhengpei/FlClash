@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'settings_apply.dart';
+import 'package:fl_clash/services/profile_order.dart';
 
 part 'generated/database.g.dart';
 
@@ -67,7 +68,10 @@ class Profiles extends _$Profiles {
 
   void put(Profile profile) {
     final previous = List<Profile>.from(state);
-    final newProfile = previous.optimizeLabel(profile);
+    final current = previous.where((item) => item.id == profile.id).firstOrNull;
+    final newProfile = previous.optimizeLabel(
+      current == null ? profile : profile.copyWith(order: current.order),
+    );
     state = previous.copyAndPut(newProfile, (item) => item.id == newProfile.id);
     unawaited(
       withRollback(
@@ -93,7 +97,7 @@ class Profiles extends _$Profiles {
   void updateProfile(int profileId, Profile Function(Profile profile) builder) {
     final index = state.indexWhere((element) => element.id == profileId);
     if (index == -1) return;
-    final newProfile = builder(state[index]);
+    final newProfile = builder(state[index]).copyWith(order: state[index].order);
     final previous = List<Profile>.from(state);
     final next = List<Profile>.from(previous);
     next[index] = newProfile;
@@ -121,19 +125,15 @@ class Profiles extends _$Profiles {
 
   void reorder(List<Profile> profiles) {
     final previous = List<Profile>.from(state);
-    final next = List<Profile>.from(profiles);
-    final needUpdate = <ProfilesCompanion>[];
-    next.forEachIndexed((index, item) {
-      if (item.order != index) {
-        needUpdate.add(item.toCompanion(index));
-      }
-    });
+    final next = mergeProfileOrder(state, profiles.map((p) => p.id));
     state = next;
     unawaited(
       withRollback(
         snapshot: previous,
-        action: () => database.profilesDao.putAll(needUpdate),
-        rollback: (v) => state = v,
+        action: () => database.profilesDao.reorderIds(next.map((p) => p.id).toList()),
+        rollback: (v) {
+          if (identical(state, next)) state = v;
+        },
       ),
     );
   }

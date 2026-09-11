@@ -248,7 +248,7 @@ class Ipv6Item extends ConsumerWidget {
     return ListItem.switchItem(
       leading: const Icon(SurgeIcons.water),
       title: const Text('IPv6'),
-      subtitle: Text(settingsText(context, '控制内核 IPv6 能力及 DNS 上限；VPN 接管请在网络页设置', 'Core IPv6 capability and DNS limit; configure VPN capture on the Network page')),
+      subtitle: Text(settingsText(context, '允许内核使用 IPv6，使用 IPv6 节点时开启', 'Allow core IPv6; enable for IPv6 nodes')),
       delegate: SwitchDelegate(
         value: ipv6,
         onChanged: (bool value) async {
@@ -273,7 +273,7 @@ class AppendSystemDNSItem extends ConsumerWidget {
     return ListItem.switchItem(
       leading: const Icon(SurgeIcons.dns),
       title: Text(appLocalizations.appendSystemDns),
-      subtitle: Text(settingsText(context, '向最终 DNS 追加系统解析器；关闭不会删除订阅或自动补全已有的系统 DNS', 'Adds the system resolver; disabling does not remove one supplied by the profile or automatic fallback')),
+      subtitle: Text(settingsText(context, '向最终 DNS 追加系统解析器', 'Append the system resolver to the final DNS configuration')),
       delegate: SwitchDelegate(
         value: appendSystemDNS,
         onChanged: (bool value) async {

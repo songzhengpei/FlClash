@@ -651,6 +651,83 @@ void main() {
       expect(shouldAttachCoreWithoutVpnSetup(null), isFalse);
     });
 
+    test('idle binder death is noise, live session loss is not', () {
+      expect(isRemoteServiceDisconnectMessage('Service disconnected'), isTrue);
+      expect(
+        isRemoteServiceDisconnectMessage('Service binding ended unexpectedly'),
+        isTrue,
+      );
+      expect(isRemoteServiceDisconnectMessage('init failed'), isFalse);
+      expect(
+        hasProtectableVpnSession(
+          vpnUiRunning: false,
+          smartPaused: false,
+          nativeSession: 'STOPPED',
+        ),
+        isFalse,
+      );
+      expect(
+        hasProtectableVpnSession(
+          vpnUiRunning: true,
+          smartPaused: false,
+          nativeSession: 'STOPPED',
+        ),
+        isTrue,
+      );
+      expect(
+        hasProtectableVpnSession(
+          vpnUiRunning: false,
+          smartPaused: true,
+          nativeSession: 'PAUSED',
+        ),
+        isTrue,
+      );
+      expect(
+        shouldNotifyRemoteServiceLoss(
+          message: 'Service disconnected',
+          hasSession: false,
+        ),
+        isFalse,
+      );
+      expect(
+        shouldNotifyRemoteServiceLoss(
+          message: 'Service disconnected',
+          hasSession: true,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldNotifyRemoteServiceLoss(
+          message: 'init failed',
+          hasSession: false,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldNotifyCoreCrash(
+          hasProtectableSession: false,
+          appResumed: true,
+          message: 'Service disconnected',
+        ),
+        isFalse,
+      );
+      expect(
+        shouldNotifyCoreCrash(
+          hasProtectableSession: true,
+          appResumed: true,
+          message: 'Service disconnected',
+        ),
+        isTrue,
+      );
+      expect(
+        shouldHandleCoreCrash(
+          coreConnected: true,
+          hasProtectableSession: false,
+        ),
+        isTrue,
+      );
+    });
+
     test('smart resume starts the listener only after Core is ready', () {
       expect(
         shouldStartListenerAfterSmartResume(suspend: false, coreReady: true),

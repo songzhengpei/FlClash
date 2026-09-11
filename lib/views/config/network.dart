@@ -134,11 +134,12 @@ class Ipv6Item extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, ref) {
-    final appLocalizations = context.appLocalizations;
     final ipv6 = ref.watch(vpnSettingProvider.select((state) => state.ipv6));
     return ListItem.switchItem(
       title: const Text('IPv6'),
-      subtitle: Text('${appLocalizations.ipv6InboundDesc} · ${Localizations.localeOf(context).languageCode == 'zh' ? '控制 VPN IPv6 接管，修改后自动重连' : 'VPN IPv6 capture; reconnects automatically'}'),
+      subtitle: Text(Localizations.localeOf(context).languageCode == 'zh'
+          ? '允许 IPv6 入站，接管应用 IPv6 流量'
+          : 'Accept and capture app IPv6 traffic'),
       delegate: SwitchDelegate(
         value: ipv6,
         onChanged: (bool value) async {
@@ -245,7 +246,7 @@ class DNSHijackingItem extends ConsumerWidget {
     return ListItem(
       title: Text(appLocalizations.dnsHijacking),
       subtitle: Text(Localizations.localeOf(context).languageCode == 'zh'
-          ? '自动接管 · VPN 运行时接管普通 DNS，保障解析兼容性'
+          ? '自动接管 · VPN 运行时接管常规 DNS'
           : 'Automatic · captures ordinary DNS while VPN is active'),
     );
   }

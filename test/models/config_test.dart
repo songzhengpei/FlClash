@@ -195,9 +195,18 @@ void main() {
       expect(props.textScale.scale, 1.0);
     });
 
+    test('first-install preset is gray-black following system', () {
+      expect(defaultThemeProps.dynamicColor, false);
+      expect(defaultThemeProps.primaryColor, legacyGraySeedColor);
+      expect(defaultThemeProps.themeMode, ThemeMode.system);
+      expect(defaultThemeProps.schemeVariant, defaultDynamicSchemeVariant);
+    });
+
     test('safeFromJson returns default on null', () {
       final result = ThemeProps.safeFromJson(null);
       expect(result.themeMode, ThemeMode.system);
+      expect(result.dynamicColor, false);
+      expect(result.primaryColor, legacyGraySeedColor);
     });
 
     test('round-trip with custom values', () {

@@ -1,3 +1,4 @@
+import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/config.dart';
@@ -82,11 +83,12 @@ void main() {
   });
 
   group('ThemeSetting provider', () {
-    test('default value uses dynamic system theme', () {
+    test('default value uses gray-black static theme following system', () {
       final value = container.read(themeSettingProvider);
-      expect(value.primaryColor, null);
+      expect(value.dynamicColor, false);
+      expect(value.primaryColor, legacyGraySeedColor);
       expect(value.themeMode, ThemeMode.system);
-      expect(value.dynamicColor, true);
+      expect(value.schemeVariant, defaultDynamicSchemeVariant);
     });
 
     test('can update state', () {
