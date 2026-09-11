@@ -1,5 +1,6 @@
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/manager/core_manager.dart';
+import 'package:fl_clash/providers/action.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -61,6 +62,45 @@ void main() {
         shouldCollectCoreRequests(
           appForeground: false,
           currentPageLabel: PageLabel.requests,
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('core crash notifier', () {
+    test('idle connected binder death still resets core, without a toast', () {
+      expect(
+        shouldHandleCoreCrash(
+          coreConnected: true,
+          hasProtectableSession: false,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldNotifyCoreCrash(
+          hasProtectableSession: false,
+          appResumed: true,
+          message: 'Service disconnected',
+        ),
+        isFalse,
+      );
+    });
+
+    test('running or paused session loss still notifies in foreground', () {
+      expect(
+        shouldNotifyCoreCrash(
+          hasProtectableSession: true,
+          appResumed: true,
+          message: 'Service disconnected',
+        ),
+        isTrue,
+      );
+      expect(
+        shouldNotifyCoreCrash(
+          hasProtectableSession: true,
+          appResumed: false,
+          message: 'Service disconnected',
         ),
         isFalse,
       );

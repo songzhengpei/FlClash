@@ -220,11 +220,24 @@ class _CoreContainerState extends ConsumerState<CoreManager>
 
   @override
   Future<void> onCrash(String message) async {
-    if (ref.read(coreStatusProvider) != CoreStatus.connected) {
+    final hasSession = ref
+        .read(setupActionProvider.notifier)
+        .hasProtectableVpnSessionNow;
+    final coreConnected =
+        ref.read(coreStatusProvider) == CoreStatus.connected;
+    if (!shouldHandleCoreCrash(
+      coreConnected: coreConnected,
+      hasProtectableSession: hasSession,
+    )) {
       return;
     }
     ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
-    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+    if (shouldNotifyCoreCrash(
+      hasProtectableSession: hasSession,
+      appResumed:
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
+      message: message,
+    )) {
       context.showNotifier(message);
     }
     await coreController.shutdown(false);

@@ -277,6 +277,62 @@ bool shouldAttachCoreWithoutVpnSetup(String? sessionState) {
   return sessionState == 'PAUSED';
 }
 
+/// Binder death from Android ServiceConnection / ServiceDelegate, not a VPN error.
+@visibleForTesting
+bool isRemoteServiceDisconnectMessage(String message) {
+  final text = message.trim();
+  if (text.isEmpty) return true;
+  return text == 'Service disconnected' ||
+      text == 'Service binding ended unexpectedly' ||
+      text == 'Binder empty' ||
+      text.startsWith('Binder is not of type ') ||
+      text.startsWith('Failed to link to death');
+}
+
+/// This APK already has a session the user would notice disappearing.
+@visibleForTesting
+bool hasProtectableVpnSession({
+  required bool vpnUiRunning,
+  required bool smartPaused,
+  String? nativeSession,
+}) {
+  if (vpnUiRunning || smartPaused) return true;
+  return switch (nativeSession) {
+    'RUNNING' || 'PAUSED' || 'STARTING' || 'STOPPING' => true,
+    _ => false,
+  };
+}
+
+/// Idle preload may bind `:remote` without a VPN. Losing that binder is noise.
+@visibleForTesting
+bool shouldNotifyRemoteServiceLoss({
+  required String message,
+  required bool hasSession,
+}) {
+  if (message.trim().isEmpty) return false;
+  if (hasSession) return true;
+  return !isRemoteServiceDisconnectMessage(message);
+}
+
+@visibleForTesting
+bool shouldHandleCoreCrash({
+  required bool coreConnected,
+  required bool hasProtectableSession,
+}) {
+  return coreConnected || hasProtectableSession;
+}
+
+@visibleForTesting
+bool shouldNotifyCoreCrash({
+  required bool hasProtectableSession,
+  required bool appResumed,
+  required String message,
+}) {
+  return hasProtectableSession &&
+      appResumed &&
+      message.trim().isNotEmpty;
+}
+
 /// After native smartResume, startListener only when Core is already attached.
 bool shouldStartListenerAfterSmartResume({
   required bool suspend,
@@ -832,6 +888,12 @@ class SetupAction extends _$SetupAction {
   DateTime? _lastRuntimeUpdateAt;
 
   bool get isStart => startTime != null && startTime!.isBeforeNow;
+
+  bool get hasProtectableVpnSessionNow => hasProtectableVpnSession(
+    vpnUiRunning: ref.read(isStartProvider),
+    smartPaused: ref.read(isSmartStoppedProvider),
+    nativeSession: _sessionState,
+  );
 
   @override
   void build() {
@@ -2424,7 +2486,20 @@ class CoreAction extends _$CoreAction {
     }
     if (message.isNotEmpty) {
       ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
-      globalState.showNotifier(message);
+      final hasSession = ref
+          .read(setupActionProvider.notifier)
+          .hasProtectableVpnSessionNow;
+      if (shouldNotifyRemoteServiceLoss(
+        message: message,
+        hasSession: hasSession,
+      )) {
+        globalState.showNotifier(message);
+      } else {
+        commonPrint.log(
+          'core-connect:suppress-disconnect-notice',
+          logLevel: LogLevel.warning,
+        );
+      }
       commonPrint.log(
         'core-connect:failed elapsedMs=${watch.elapsedMilliseconds}',
         logLevel: LogLevel.error,

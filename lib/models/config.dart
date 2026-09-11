@@ -41,7 +41,8 @@ const defaultWindowProps = WindowProps();
 const defaultAccessControlProps = AccessControlProps();
 const defaultThemeProps = ThemeProps(
   themeMode: ThemeMode.system,
-  dynamicColor: true,
+  dynamicColor: false,
+  primaryColor: legacyGraySeedColor,
   schemeVariant: defaultDynamicSchemeVariant,
 );
 
