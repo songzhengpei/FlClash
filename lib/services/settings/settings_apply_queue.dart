@@ -87,7 +87,9 @@ class SettingsApplyQueue {
       _timer?.cancel();
       _baseline = _baseline.copyWith(currentProfileId: next.currentProfileId);
       _savedEdits.clear();
-      onStatus(const SettingsApplyStatus(SettingsApplyPhase.deferred));
+      // CoreManager owns immediate profile application and its feedback.
+      // Changing subscription is not a deferred settings edit.
+      onStatus(const SettingsApplyStatus(SettingsApplyPhase.idle));
       return;
     }
     if (settingsApplyKind(previous, next) == SettingsApplyKind.none) return;

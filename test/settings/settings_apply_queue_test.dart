@@ -7,6 +7,41 @@ import 'package:fl_clash/services/settings/settings_runtime.dart';
 
 void main() {
   const initial = Config(currentProfileId: 1, themeProps: defaultThemeProps);
+  for (final running in [false, true]) {
+    test('profile switch is silent while running=$running', () {
+      fakeAsync((clock) {
+        var config = initial;
+        final phases = <SettingsApplyPhase>[];
+        var calls = 0;
+        final queue = SettingsApplyQueue(
+          baseline: initial,
+          read: () => config,
+          canApply: () => running,
+          apply: (_, _, _) async {
+            calls++;
+          },
+          restorePreferences: (_) async {},
+          onStatus: (status) => phases.add(status.phase),
+        );
+        config = initial.copyWith(currentProfileId: 2);
+        queue.change(initial, config);
+        // The existing profile owner acknowledges the immediate application.
+        queue.acknowledged(config);
+        clock.elapse(const Duration(seconds: 2));
+        expect(phases, everyElement(SettingsApplyPhase.idle));
+        expect(calls, 0);
+        // Real saved edits while stopped must still report deferred.
+        final previous = config;
+        config = config.copyWith.patchClashConfig.dns(preferH3: true);
+        queue.change(previous, config);
+        expect(
+          phases.last,
+          running ? SettingsApplyPhase.pending : SettingsApplyPhase.deferred,
+        );
+        queue.dispose();
+      });
+    });
+  }
   test(
     'reload debounce merges a subsequent hot change into one transaction',
     () {
