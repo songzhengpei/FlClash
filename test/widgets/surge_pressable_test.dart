@@ -9,10 +9,7 @@ Widget _app(Widget child) {
   return MaterialApp(
     theme: ThemeData(
       textTheme: textTheme,
-      extensions: [
-        SurgeTheme.light(),
-        typography,
-      ],
+      extensions: [SurgeTheme.light(), typography],
     ),
     home: Scaffold(body: Center(child: child)),
   );
@@ -73,6 +70,56 @@ void main() {
     await tester.pump();
     expect(taps, 0);
     expect(tester.widget<AnimatedScale>(find.byType(AnimatedScale)).scale, 1);
+  });
+
+  testWidgets('pressed overlay can cover adjacent dividers', (tester) async {
+    await tester.pumpWidget(
+      _app(
+        SurgePressable(
+          onTap: () {},
+          scaleFeedback: false,
+          overlayInsets: const EdgeInsets.symmetric(vertical: 1),
+          overlayBaseColor: Colors.black,
+          child: const SizedBox(width: 100, height: 48),
+        ),
+      ),
+    );
+
+    final positionedFinder = find.descendant(
+      of: find.byType(SurgePressable),
+      matching: find.byType(Positioned),
+    );
+    expect(positionedFinder, findsNWidgets(3));
+    final overlay = tester.widget<Positioned>(positionedFinder.first);
+    expect(overlay.top, -1);
+    expect(overlay.bottom, -1);
+    expect(overlay.left, 0);
+    expect(overlay.right, 0);
+    final topDividerCover = tester.widget<Positioned>(positionedFinder.at(1));
+    final bottomDividerCover = tester.widget<Positioned>(
+      positionedFinder.at(2),
+    );
+    expect(topDividerCover.top, -1);
+    expect(topDividerCover.height, 2);
+    expect(bottomDividerCover.bottom, -1);
+    expect(bottomDividerCover.height, 2);
+  });
+
+  testWidgets('long press remains interactive without a tap callback', (
+    tester,
+  ) async {
+    var longPresses = 0;
+    await tester.pumpWidget(
+      _app(
+        SurgePressable(
+          onLongPress: () => longPresses++,
+          child: const SizedBox(width: 100, height: 48),
+        ),
+      ),
+    );
+
+    await tester.longPress(find.byType(SurgePressable));
+    expect(longPresses, 1);
   });
 
   testWidgets('animated reveal preserves child while changing visibility', (

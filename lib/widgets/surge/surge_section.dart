@@ -26,10 +26,21 @@ class SurgeSection extends StatelessWidget {
   List<Widget> _buildChildren(SurgeTheme surge) {
     if (!showDividers) return children;
     return [
-      for (var i = 0; i < children.length; i++) ...[
-        if (i != 0) Divider(height: 0, color: surge.separator),
-        children[i],
-      ],
+      for (var i = 0; i < children.length; i++)
+        if (i == 0)
+          children[i]
+        else
+          DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: surge.separator,
+                  width: surge.spacing.hairline,
+                ),
+              ),
+            ),
+            child: children[i],
+          ),
     ];
   }
 

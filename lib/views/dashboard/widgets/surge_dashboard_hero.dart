@@ -1319,6 +1319,7 @@ class _HeroProxySelectorBar extends ConsumerWidget {
       dividerMargin: layout.geometry(10),
       iconSize: layout.geometry(16),
       labelGap: layout.geometry(2),
+      itemVerticalInset: layout.legacy(3),
       labelStyle: context.typography.selectorLabel,
     );
   }

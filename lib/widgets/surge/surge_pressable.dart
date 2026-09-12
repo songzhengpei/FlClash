@@ -8,7 +8,10 @@ class SurgePressable extends StatefulWidget {
     super.key,
     required this.child,
     this.onTap,
+    this.onLongPress,
     this.borderRadius = BorderRadius.zero,
+    this.overlayInsets = EdgeInsets.zero,
+    this.overlayBaseColor,
     this.scaleFeedback = true,
     this.overlayFeedback = true,
     this.overlayOpacity,
@@ -20,7 +23,10 @@ class SurgePressable extends StatefulWidget {
 
   final Widget child;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final BorderRadiusGeometry borderRadius;
+  final EdgeInsetsGeometry overlayInsets;
+  final Color? overlayBaseColor;
   final bool scaleFeedback;
   final bool overlayFeedback;
   final double? overlayOpacity;
@@ -36,7 +42,8 @@ class SurgePressable extends StatefulWidget {
 class _SurgePressableState extends State<SurgePressable> {
   bool _pressed = false;
 
-  bool get _interactive => widget.enabled && widget.onTap != null;
+  bool get _interactive =>
+      widget.enabled && (widget.onTap != null || widget.onLongPress != null);
 
   void _setPressed(bool value) {
     if (!_interactive || _pressed == value) return;
@@ -52,6 +59,15 @@ class _SurgePressableState extends State<SurgePressable> {
   @override
   Widget build(BuildContext context) {
     final surge = SurgeTheme.of(context);
+    final overlayInsets = widget.overlayInsets.resolve(
+      Directionality.of(context),
+    );
+    final overlayColor = surge.textPrimary.withValues(
+      alpha: widget.overlayOpacity ?? SurgeMotion.pressedOverlayOpacity,
+    );
+    final pressedSurfaceColor = widget.overlayBaseColor == null
+        ? null
+        : Color.alphaBlend(overlayColor, widget.overlayBaseColor!);
     final scale = !widget.scaleFeedback || !_pressed
         ? 1.0
         : widget.compact
@@ -61,36 +77,66 @@ class _SurgePressableState extends State<SurgePressable> {
       scale: scale,
       duration: SurgeMotion.press,
       curve: SurgeMotion.stateCurve,
-      child: ClipRRect(
-        borderRadius: widget.borderRadius,
-        child: Stack(
-          fit: StackFit.passthrough,
-          children: [
-            widget.child,
-            if (widget.overlayFeedback)
-              Positioned.fill(
-                child: IgnorePointer(
+      child: Stack(
+        fit: StackFit.passthrough,
+        clipBehavior: Clip.none,
+        children: [
+          ClipRRect(borderRadius: widget.borderRadius, child: widget.child),
+          if (widget.overlayFeedback)
+            Positioned(
+              left: -overlayInsets.left,
+              top: -overlayInsets.top,
+              right: -overlayInsets.right,
+              bottom: -overlayInsets.bottom,
+              child: IgnorePointer(
+                child: ClipRRect(
+                  borderRadius: widget.borderRadius,
                   child: AnimatedOpacity(
                     opacity: _pressed ? 1 : 0,
                     duration: SurgeMotion.press,
                     curve: SurgeMotion.stateCurve,
-                    child: ColoredBox(
-                      color: surge.textPrimary.withValues(
-                        alpha:
-                            widget.overlayOpacity ??
-                            SurgeMotion.pressedOverlayOpacity,
-                      ),
-                    ),
+                    child: ColoredBox(color: overlayColor),
                   ),
                 ),
               ),
-          ],
-        ),
+            ),
+          if (pressedSurfaceColor != null && overlayInsets.top > 0)
+            Positioned(
+              left: -overlayInsets.left,
+              top: -overlayInsets.top,
+              right: -overlayInsets.right,
+              height: overlayInsets.top * 2,
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  opacity: _pressed ? 1 : 0,
+                  duration: SurgeMotion.press,
+                  curve: SurgeMotion.stateCurve,
+                  child: ColoredBox(color: pressedSurfaceColor),
+                ),
+              ),
+            ),
+          if (pressedSurfaceColor != null && overlayInsets.bottom > 0)
+            Positioned(
+              left: -overlayInsets.left,
+              right: -overlayInsets.right,
+              bottom: -overlayInsets.bottom,
+              height: overlayInsets.bottom * 2,
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  opacity: _pressed ? 1 : 0,
+                  duration: SurgeMotion.press,
+                  curve: SurgeMotion.stateCurve,
+                  child: ColoredBox(color: pressedSurfaceColor),
+                ),
+              ),
+            ),
+        ],
       ),
     );
     result = GestureDetector(
       behavior: widget.behavior,
       onTap: _interactive ? widget.onTap : null,
+      onLongPress: _interactive ? widget.onLongPress : null,
       onTapDown: _interactive ? (_) => _setPressed(true) : null,
       onTapUp: _interactive ? (_) => _setPressed(false) : null,
       onTapCancel: _interactive ? () => _setPressed(false) : null,

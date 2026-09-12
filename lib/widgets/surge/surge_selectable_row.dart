@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'surge_pressable.dart';
 import 'surge_theme_extension.dart';
 
 /// Visual presentations for a selected item without duplicating selection
@@ -103,33 +104,38 @@ class SurgeSelectableRow extends StatelessWidget {
                 surge.card,
               )
         : unselectedSurfaceColor ?? surge.card;
+    final isGrouped = position != SurgeSelectableRowPosition.single;
 
     return Semantics(
-      button: onTap != null,
       selected: selected,
-      child: Material(
-        color: Colors.transparent,
-        clipBehavior: Clip.antiAlias,
+      child: SurgePressable(
+        onTap: onTap,
+        onLongPress: onLongPress,
         borderRadius: rowRadius,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: surface,
-            borderRadius: rowRadius,
-            border: border,
-            boxShadow: showShadow && _isFirst
-                ? [
-                    BoxShadow(
-                      color: surge.shadow.withValues(alpha: 0.10),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-          child: InkWell(
-            onTap: onTap,
-            onLongPress: onLongPress,
-            borderRadius: rowRadius,
+        overlayInsets: isGrouped
+            ? EdgeInsets.symmetric(vertical: surge.spacing.hairline)
+            : EdgeInsets.zero,
+        overlayBaseColor: isGrouped ? surface : null,
+        scaleFeedback: false,
+        child: Material(
+          color: Colors.transparent,
+          clipBehavior: Clip.antiAlias,
+          borderRadius: rowRadius,
+          child: Ink(
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: rowRadius,
+              border: border,
+              boxShadow: showShadow && _isFirst
+                  ? [
+                      BoxShadow(
+                        color: surge.shadow.withValues(alpha: 0.10),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : null,
+            ),
             child: Stack(
               children: [
                 child,
