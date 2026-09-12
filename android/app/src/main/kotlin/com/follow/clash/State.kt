@@ -49,6 +49,18 @@ internal fun permissionIntentIsCurrent(expected: Long, pending: Long?, stopEpoch
 internal fun canFullStopSession(state: String): Boolean =
     state == SessionState.RUNNING || state == SessionState.PAUSED
 
+internal enum class StopRequestAction {
+    CANCEL_PENDING_START,
+    FULL_STOP,
+    WAIT_FOR_TRANSITION,
+}
+
+internal fun stopRequestActionForSessionState(state: String): StopRequestAction = when (state) {
+    SessionState.RUNNING, SessionState.PAUSED -> StopRequestAction.FULL_STOP
+    SessionState.STARTING, SessionState.STOPPING -> StopRequestAction.WAIT_FOR_TRANSITION
+    else -> StopRequestAction.CANCEL_PENDING_START
+}
+
 internal fun canAttemptExplicitStart(runState: RunState): Boolean =
     runState != RunState.PENDING
 
@@ -440,6 +452,25 @@ object State {
         stopEpoch.incrementAndGet()
         return runLock.withLock {
             pendingStartEpoch = null
+            when (stopRequestActionForSessionState(sessionSnapshot.state)) {
+                StopRequestAction.CANCEL_PENDING_START -> {
+                    // A Flutter Start can still be preparing Core/config or
+                    // waiting for VPN permission while the authoritative
+                    // native session remains STOPPED. Invalidating stopEpoch
+                    // above is sufficient; dispatching a remote full-stop here
+                    // would tear down the service underneath that cancelled
+                    // request and surface a spurious binder disconnect.
+                    applySnapshot(sessionSnapshot)
+                    return@withLock sessionSnapshot.state == SessionState.STOPPED
+                }
+                StopRequestAction.WAIT_FOR_TRANSITION -> {
+                    // STARTING/STOPPING are serialized remote transitions.
+                    // A rapid UI tap must not destroy their physical service;
+                    // lifecycle signals will publish the terminal snapshot.
+                    return@withLock false
+                }
+                StopRequestAction.FULL_STOP -> Unit
+            }
             try {
                 runStateFlow.tryEmit(RunState.PENDING)
                 val result = Service.stopService()
