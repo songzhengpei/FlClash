@@ -223,8 +223,10 @@ class _MediaCheckCompactRow extends StatelessWidget {
     final surge = SurgeTheme.of(context);
     final profileCount = profiles.length;
     return SurgePressable(
-      borderRadius: BorderRadius.circular(surge.radii.card),
       behavior: HitTestBehavior.opaque,
+      scaleFeedback: false,
+      overlayInsets: EdgeInsets.symmetric(vertical: surge.spacing.hairline),
+      overlayBaseColor: surge.card,
       onTap: () {
         BaseNavigator.push(
           context,
@@ -232,7 +234,7 @@ class _MediaCheckCompactRow extends StatelessWidget {
         );
       },
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
             _SoftOsIconSurface(
@@ -914,42 +916,53 @@ class _CurrentProfileSummaryState extends State<_CurrentProfileSummary> {
             snapshot.connectionState != ConnectionState.done;
         return SurgeCard(
           shadow: true,
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          padding: const EdgeInsets.only(top: 14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      widget.profile.realLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: context.typography.featuredTitle.copyWith(
-                        color: surge.textPrimary,
-                      ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.profile.realLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: context.typography.featuredTitle.copyWith(
+                              color: surge.textPrimary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        _CurrentProfileStatusPill(profileId: widget.profile.id),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  _CurrentProfileStatusPill(profileId: widget.profile.id),
-                ],
-              ),
-              const SizedBox(height: 8),
-              _CurrentProfileDetails(profile: widget.profile),
-              const SizedBox(height: 10),
-              Divider(
-                height: 1,
-                thickness: surge.spacing.hairline,
-                color: surge.separator.withValues(alpha: 0.62),
+                    const SizedBox(height: 8),
+                    _CurrentProfileDetails(profile: widget.profile),
+                    const SizedBox(height: 10),
+                    Divider(
+                      height: 1,
+                      thickness: surge.spacing.hairline,
+                      color: surge.separator.withValues(alpha: 0.62),
+                    ),
+                  ],
+                ),
               ),
               _MediaCheckCompactRow(
                 profile: widget.profile,
                 profiles: widget.profiles,
               ),
-              Divider(
-                height: 1,
-                thickness: surge.spacing.hairline,
-                color: surge.separator.withValues(alpha: 0.62),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Divider(
+                  height: 1,
+                  thickness: surge.spacing.hairline,
+                  color: surge.separator.withValues(alpha: 0.62),
+                ),
               ),
               _CurrentProfileExpandButton(
                 expanded: widget.expanded,
@@ -959,7 +972,7 @@ class _CurrentProfileSummaryState extends State<_CurrentProfileSummary> {
               SurgeAnimatedReveal(
                 visible: widget.expanded && !isLoading,
                 child: Padding(
-                  padding: const EdgeInsets.only(top: 12),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                   child: _CurrentProfileProxyPreview(proxies: proxies),
                 ),
               ),
@@ -1100,46 +1113,52 @@ class _CurrentProfileExpandButton extends StatelessWidget {
         enabled: enabled,
         compact: true,
         behavior: HitTestBehavior.opaque,
+        scaleFeedback: false,
+        overlayInsets: EdgeInsets.only(top: surge.spacing.hairline),
+        overlayBaseColor: surge.card,
         onTap: enabled ? onTap : null,
         child: SizedBox(
           height: 52,
-          child: Row(
-            children: [
-              _SoftOsIconSurface(
-                icon: SurgeIcons.hub,
-                color: enabled ? surge.primary : surge.textSecondary,
-                size: 30,
-                radius: 15,
-                iconSize: 15,
-                backgroundAlpha: enabled ? 0.08 : 0.04,
-                foregroundAlpha: enabled ? 0.88 : 0.55,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  enabled
-                      ? context.appLocalizations.expandCurrentProfileNodes
-                      : context.appLocalizations.readingCurrentProfileNodes,
-                  style: context.typography.itemLabel.copyWith(
-                    color: enabled ? surge.textPrimary : surge.textSecondary,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                _SoftOsIconSurface(
+                  icon: SurgeIcons.hub,
+                  color: enabled ? surge.primary : surge.textSecondary,
+                  size: 30,
+                  radius: 15,
+                  iconSize: 15,
+                  backgroundAlpha: enabled ? 0.08 : 0.04,
+                  foregroundAlpha: enabled ? 0.88 : 0.55,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    enabled
+                        ? context.appLocalizations.expandCurrentProfileNodes
+                        : context.appLocalizations.readingCurrentProfileNodes,
+                    style: context.typography.itemLabel.copyWith(
+                      color: enabled ? surge.textPrimary : surge.textSecondary,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              IgnorePointer(
-                child: AnimatedRotation(
-                  turns: expanded ? 0.5 : 0,
-                  duration: SurgeMotion.reveal,
-                  child: SoftOsIconButton(
-                    icon: SurgeIcons.expand,
-                    onPressed: enabled ? onTap : null,
-                    visualSize: 30,
-                    tapSize: 44,
-                    iconSize: 15,
+                const SizedBox(width: 8),
+                IgnorePointer(
+                  child: AnimatedRotation(
+                    turns: expanded ? 0.5 : 0,
+                    duration: SurgeMotion.reveal,
+                    child: SoftOsIconButton(
+                      icon: SurgeIcons.expand,
+                      onPressed: enabled ? onTap : null,
+                      visualSize: 30,
+                      tapSize: 44,
+                      iconSize: 15,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -1557,6 +1576,7 @@ class _ProfileListItem extends StatelessWidget {
           : isLast
           ? SurgeSelectableRowPosition.last
           : SurgeSelectableRowPosition.middle,
+      radius: surge.radii.list,
       showDivider: showDivider,
       child: SizedBox(
         height: hasTraffic ? 92 : 74,

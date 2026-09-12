@@ -515,10 +515,13 @@ class _SurgeListItemRow extends StatelessWidget {
             .toDouble();
     final gap = horizontalTitleGap ?? 12;
 
-    return Material(
-      color: backgroundColor ?? Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
+    return SurgePressable(
+      onTap: onTap,
+      scaleFeedback: false,
+      overlayInsets: EdgeInsets.symmetric(vertical: surge.spacing.hairline),
+      overlayBaseColor: backgroundColor ?? surge.card,
+      child: Material(
+        color: backgroundColor ?? Colors.transparent,
         child: ConstrainedBox(
           constraints: BoxConstraints(minHeight: effectiveMinHeight),
           child: Padding(
@@ -965,21 +968,24 @@ class _SurgeSelectableListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final surge = SurgeTheme.of(context);
-    return Material(
-      color: Colors.transparent,
-      clipBehavior: Clip.antiAlias,
+    return SurgePressable(
+      onTap: onPressed,
       borderRadius: borderRadius,
-      child: Ink(
-        decoration: BoxDecoration(
-          color: _backgroundColor(surge),
-          borderRadius: borderRadius,
-          border: _borderSide(surge) == BorderSide.none
-              ? null
-              : Border.fromBorderSide(_borderSide(surge)),
-        ),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: borderRadius,
+      scaleFeedback: false,
+      overlayInsets: EdgeInsets.symmetric(vertical: surge.spacing.hairline),
+      overlayBaseColor: _backgroundColor(surge),
+      child: Material(
+        color: Colors.transparent,
+        clipBehavior: Clip.antiAlias,
+        borderRadius: borderRadius,
+        child: Ink(
+          decoration: BoxDecoration(
+            color: _backgroundColor(surge),
+            borderRadius: borderRadius,
+            border: _borderSide(surge) == BorderSide.none
+                ? null
+                : Border.fromBorderSide(_borderSide(surge)),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [

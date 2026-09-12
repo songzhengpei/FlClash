@@ -657,7 +657,10 @@ class _ListHeaderState extends State<ListHeader> {
                 ]
               : null,
         ),
-        child: InkWell(
+        child: SurgePressable(
+          scaleFeedback: false,
+          overlayInsets: EdgeInsets.symmetric(vertical: surge.spacing.hairline),
+          overlayBaseColor: surge.card,
           onTap: () {
             _handleChange(groupName);
           },
@@ -711,9 +714,7 @@ class _ListHeaderState extends State<ListHeader> {
                                         style: context
                                             .typography
                                             .proxyGroupTitle
-                                            .copyWith(
-                                              color: surge.textPrimary,
-                                            ),
+                                            .copyWith(color: surge.textPrimary),
                                       ),
                                       const SizedBox(height: 4),
                                       Flexible(
@@ -733,8 +734,7 @@ class _ListHeaderState extends State<ListHeader> {
                                                   .typography
                                                   .proxySelectorLabel
                                                   .copyWith(
-                                                    color:
-                                                        surge.textSecondary,
+                                                    color: surge.textSecondary,
                                                   ),
                                             ),
                                             const SizedBox(width: 12),
@@ -754,8 +754,7 @@ class _ListHeaderState extends State<ListHeader> {
                                                       .typography
                                                       .proxySelectorLabel
                                                       .copyWith(
-                                                        color: surge
-                                                            .textPrimary
+                                                        color: surge.textPrimary
                                                             .withValues(
                                                               alpha: 0.78,
                                                             ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'surge_pressable.dart';
 import 'surge_theme_extension.dart';
 
 class SurgeDataListItem extends StatelessWidget {
@@ -22,22 +23,23 @@ class SurgeDataListItem extends StatelessWidget {
     final borderRadius = BorderRadius.circular(surge.radii.list);
     return Padding(
       padding: margin,
-      child: Material(
-        color: Colors.transparent,
-        clipBehavior: Clip.antiAlias,
+      child: SurgePressable(
+        onTap: onTap,
         borderRadius: borderRadius,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: surge.card,
-            borderRadius: borderRadius,
-            border: Border.all(
-              color: surge.separator.withValues(alpha: 0.78),
-              width: 0.7,
+        scaleFeedback: false,
+        child: Material(
+          color: Colors.transparent,
+          clipBehavior: Clip.antiAlias,
+          borderRadius: borderRadius,
+          child: Ink(
+            decoration: BoxDecoration(
+              color: surge.card,
+              borderRadius: borderRadius,
+              border: Border.all(
+                color: surge.separator.withValues(alpha: 0.78),
+                width: 0.7,
+              ),
             ),
-          ),
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: borderRadius,
             child: Padding(padding: padding, child: child),
           ),
         ),

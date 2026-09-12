@@ -52,104 +52,104 @@ class TrackerInfoItem extends ConsumerWidget {
     );
     final process = trackerInfo.metadata.process;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          showExtend(
-            context,
-            builder: (_) {
-              return AdaptiveSheetScaffold(
-                body: TrackerInfoDetailView(trackerInfo: trackerInfo),
-                title: detailTitle,
-                appBarActions: const [],
-              );
-            },
-          );
-        },
-        child: Stack(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 58),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (showProcessIcon && process.isNotEmpty)
-                          _TrackerProcessIcon(
-                            trackerInfo: trackerInfo,
-                            onTap: onClickKeyword == null
-                                ? null
-                                : () => onClickKeyword!(process),
-                          ),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                trackerInfo.desc,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: context.typography.rowTitle.copyWith(
-                                  color: surge.textPrimary,
-                                ),
-                              ),
-                              const SizedBox(height: 5),
-                              Text(
-                                _getSourceText(context, trackerInfo),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: context.typography.techLabel.copyWith(
-                                  color: surge.textSecondary,
-                                ),
-                              ),
-                            ],
-                          ),
+    return SurgePressable(
+      scaleFeedback: false,
+      overlayInsets: EdgeInsets.symmetric(vertical: surge.spacing.hairline),
+      overlayBaseColor: surge.card,
+      onTap: () {
+        showExtend(
+          context,
+          builder: (_) {
+            return AdaptiveSheetScaffold(
+              body: TrackerInfoDetailView(trackerInfo: trackerInfo),
+              title: detailTitle,
+              appBarActions: const [],
+            );
+          },
+        );
+      },
+      child: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 58),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (showProcessIcon && process.isNotEmpty)
+                        _TrackerProcessIcon(
+                          trackerInfo: trackerInfo,
+                          onTap: onClickKeyword == null
+                              ? null
+                              : () => onClickKeyword!(process),
                         ),
-                        if (trailing != null) ...[
-                          const SizedBox(width: 6),
-                          trailing!,
-                        ],
-                      ],
-                    ),
-                    if (trackerInfo.chains.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        height: 28,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          padding: EdgeInsets.zero,
-                          itemCount: trackerInfo.chains.length,
-                          separatorBuilder: (_, _) => const SizedBox(width: 6),
-                          itemBuilder: (_, index) {
-                            final chain = trackerInfo.chains[index];
-                            return _TrackerChainPill(
-                              label: chain,
-                              onTap: onClickKeyword == null
-                                  ? null
-                                  : () => onClickKeyword!(chain),
-                            );
-                          },
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              trackerInfo.desc,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: context.typography.rowTitle.copyWith(
+                                color: surge.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              _getSourceText(context, trackerInfo),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: context.typography.techLabel.copyWith(
+                                color: surge.textSecondary,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+                      if (trailing != null) ...[
+                        const SizedBox(width: 6),
+                        trailing!,
+                      ],
                     ],
+                  ),
+                  if (trackerInfo.chains.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 28,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: EdgeInsets.zero,
+                        itemCount: trackerInfo.chains.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 6),
+                        itemBuilder: (_, index) {
+                          final chain = trackerInfo.chains[index];
+                          return _TrackerChainPill(
+                            label: chain,
+                            onTap: onClickKeyword == null
+                                ? null
+                                : () => onClickKeyword!(chain),
+                          );
+                        },
+                      ),
+                    ),
                   ],
-                ),
+                ],
               ),
             ),
-            if (showDivider)
-              const Positioned(
-                left: 16,
-                right: 16,
-                bottom: 0,
-                child: SoftOsListDivider(),
-              ),
-          ],
-        ),
+          ),
+          if (showDivider)
+            const Positioned(
+              left: 16,
+              right: 16,
+              bottom: 0,
+              child: SoftOsListDivider(),
+            ),
+        ],
       ),
     );
   }

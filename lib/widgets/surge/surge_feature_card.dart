@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'surge_pressable.dart';
 import 'surge_theme_extension.dart';
 
 class SurgeFeatureCard extends StatelessWidget {
@@ -40,26 +41,27 @@ class SurgeFeatureCard extends StatelessWidget {
           colors: [baseColor, Color.lerp(baseColor, Colors.black, 0.14)!],
         );
 
-    return Material(
-      color: Colors.transparent,
-      clipBehavior: Clip.antiAlias,
+    return SurgePressable(
+      onTap: onTap,
       borderRadius: radius,
-      child: Ink(
-        height: height,
-        decoration: BoxDecoration(
-          borderRadius: radius,
-          gradient: effectiveGradient,
-          boxShadow: [
-            BoxShadow(
-              color: baseColor.withValues(alpha: 0.18),
-              blurRadius: 18,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: radius,
+      scaleFeedback: false,
+      child: Material(
+        color: Colors.transparent,
+        clipBehavior: Clip.antiAlias,
+        borderRadius: radius,
+        child: Ink(
+          height: height,
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            gradient: effectiveGradient,
+            boxShadow: [
+              BoxShadow(
+                color: baseColor.withValues(alpha: 0.18),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
           child: Padding(
             padding: EdgeInsets.all(surge.spacing.cardPadding),
             child: Column(

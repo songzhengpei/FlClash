@@ -1,6 +1,7 @@
 import 'package:fl_clash/common/icons.dart';
 import 'package:flutter/material.dart';
 
+import 'surge_pressable.dart';
 import 'surge_theme_extension.dart';
 
 class SurgeListTile extends StatelessWidget {
@@ -44,38 +45,31 @@ class SurgeListTile extends StatelessWidget {
     final minHeight = dense ? 52.0 : 64.0;
     final hasSubtitle = subtitle != null && subtitle!.isNotEmpty;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: minHeight),
-          child: Padding(
-            padding: const EdgeInsets.only(left: 16),
-            child: Row(
-              children: [
-                if (leading != null) ...[
-                  IconTheme.merge(
-                    data: IconThemeData(
-                      color: destructive ? surge.red : surge.primary,
-                      size: 21,
+    return SurgePressable(
+      onTap: enabled ? onTap : null,
+      enabled: enabled,
+      scaleFeedback: false,
+      overlayInsets: EdgeInsets.symmetric(vertical: surge.spacing.hairline),
+      overlayBaseColor: surge.card,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: minHeight),
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 16),
+              child: Row(
+                children: [
+                  if (leading != null) ...[
+                    IconTheme.merge(
+                      data: IconThemeData(
+                        color: destructive ? surge.red : surge.primary,
+                        size: 21,
+                      ),
+                      child: leading!,
                     ),
-                    child: leading!,
-                  ),
-                  const SizedBox(width: 12),
-                ],
-                Expanded(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      border: showDivider
-                          ? Border(
-                              bottom: BorderSide(
-                                color: surge.separator,
-                                width: surge.spacing.hairline,
-                              ),
-                            )
-                          : null,
-                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  Expanded(
                     child: Padding(
                       padding: const EdgeInsets.only(right: 14),
                       child: Row(
@@ -93,9 +87,10 @@ class SurgeListTile extends StatelessWidget {
                                     title,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: (titleTextStyle ?? context.typography.rowTitle).copyWith(
-                                      color: titleColor,
-                                    ),
+                                    style:
+                                        (titleTextStyle ??
+                                                context.typography.rowTitle)
+                                            .copyWith(color: titleColor),
                                   ),
                                   if (hasSubtitle) ...[
                                     const SizedBox(height: 3),
@@ -103,7 +98,9 @@ class SurgeListTile extends StatelessWidget {
                                       subtitle!,
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
-                                      style: (subtitleTextStyle ?? context.typography.supporting),
+                                      style:
+                                          (subtitleTextStyle ??
+                                          context.typography.supporting),
                                     ),
                                   ],
                                 ],
@@ -126,10 +123,21 @@ class SurgeListTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+            if (showDivider)
+              Positioned(
+                left: leading == null ? 16 : 49,
+                right: 0,
+                bottom: 0,
+                child: Divider(
+                  height: 0,
+                  thickness: surge.spacing.hairline,
+                  color: surge.separator,
+                ),
+              ),
+          ],
         ),
       ),
     );

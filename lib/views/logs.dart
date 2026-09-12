@@ -214,77 +214,77 @@ class LogItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final surge = SurgeTheme.of(context);
     final levelColor = log.logLevel.color(context) ?? surge.textSecondary;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {},
-        child: Stack(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 11, 14, 11),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SelectableText(
-                    log.payload,
-                    style: context.typography.techLabel.copyWith(
-                      color: surge.textPrimary.withValues(alpha: 0.9),
+    return SurgePressable(
+      scaleFeedback: false,
+      overlayInsets: EdgeInsets.symmetric(vertical: surge.spacing.hairline),
+      overlayBaseColor: surge.card,
+      onTap: () {},
+      child: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 11, 14, 11),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SelectableText(
+                  log.payload,
+                  style: context.typography.techLabel.copyWith(
+                    color: surge.textPrimary.withValues(alpha: 0.9),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    SurgePressable(
+                      compact: true,
+                      borderRadius: BorderRadius.circular(surge.radii.chart),
+                      onTap: () {
+                        if (onClick == null) return;
+                        onClick!(log.logLevel.name);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: levelColor.withValues(alpha: 0.075),
+                          borderRadius: BorderRadius.circular(
+                            surge.radii.chart,
+                          ),
+                          border: Border.all(
+                            color: levelColor.withValues(alpha: 0.14),
+                            width: surge.spacing.hairline,
+                          ),
+                        ),
+                        child: Text(
+                          log.logLevel.name,
+                          style: context.typography.badgeLabel.copyWith(
+                            color: levelColor,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      SurgePressable(
-                        compact: true,
-                        borderRadius: BorderRadius.circular(surge.radii.chart),
-                        onTap: () {
-                          if (onClick == null) return;
-                          onClick!(log.logLevel.name);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: levelColor.withValues(alpha: 0.075),
-                            borderRadius: BorderRadius.circular(
-                              surge.radii.chart,
-                            ),
-                            border: Border.all(
-                              color: levelColor.withValues(alpha: 0.14),
-                              width: surge.spacing.hairline,
-                            ),
-                          ),
-                          child: Text(
-                            log.logLevel.name,
-                            style: context.typography.badgeLabel.copyWith(
-                              color: levelColor,
-                            ),
-                          ),
-                        ),
+                    const Spacer(),
+                    Text(
+                      log.dateTime,
+                      style: context.typography.techLabel.copyWith(
+                        color: surge.textSecondary.withValues(alpha: 0.62),
                       ),
-                      const Spacer(),
-                      Text(
-                        log.dateTime,
-                        style: context.typography.techLabel.copyWith(
-                          color: surge.textSecondary.withValues(alpha: 0.62),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            if (showDivider)
-              const Positioned(
-                left: 14,
-                right: 14,
-                bottom: 0,
-                child: _LogsListDivider(),
-              ),
-          ],
-        ),
+          ),
+          if (showDivider)
+            const Positioned(
+              left: 14,
+              right: 14,
+              bottom: 0,
+              child: _LogsListDivider(),
+            ),
+        ],
       ),
     );
   }

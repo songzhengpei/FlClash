@@ -414,12 +414,24 @@ void main() {
               labelStyle: _typography().rowTitle,
               iconSize: 16,
               labelGap: 4,
+              itemVerticalInset: 3,
             ),
           ),
         ),
       );
 
       expect(tester.getSize(find.byType(SurgeDualSelectBar)).height, 44);
+      final barRect = tester.getRect(find.byType(SurgeDualSelectBar));
+      final firstTarget = find.byType(SurgePressable).at(0);
+      final firstOverlay = find.descendant(
+        of: firstTarget,
+        matching: find.byType(ColoredBox),
+      );
+      final firstOverlayRect = tester.getRect(firstOverlay);
+      expect(firstOverlayRect.left, closeTo(barRect.left + 4, 0.01));
+      expect(firstOverlayRect.top, closeTo(barRect.top + 3, 0.01));
+      expect(firstOverlayRect.bottom, closeTo(barRect.bottom - 3, 0.01));
+
       await tester.tap(find.text('规则模式'));
       await tester.tap(find.text('当前节点'));
       expect(secondTaps, 1);
