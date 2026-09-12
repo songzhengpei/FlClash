@@ -108,12 +108,17 @@ func (th *TunHandler) handleResolveProcess(source, target net.Addr) string {
 }
 
 func (th *TunHandler) initHook() {
+	// These hooks can outlive the assignment that installed them: an outbound
+	// connection may already have copied the function while a rapid VPN stop is
+	// removing it. Capture this handler instead of consulting the mutable global
+	// tunHandler so an old callback can only observe its own, safely drained
+	// listener and JNI reference.
 	dialer.DefaultSocketHook = func(network, address string, conn syscall.RawConn) error {
 		if platform.ShouldBlockConnection() {
 			return errBlocked
 		}
 		return conn.Control(func(fd uintptr) {
-			tunHandler.handleProtect(int(fd))
+			th.handleProtect(int(fd))
 		})
 	}
 	process.DefaultPackageNameResolver = func(metadata *constant.Metadata) (string, error) {
@@ -121,7 +126,7 @@ func (th *TunHandler) initHook() {
 		if src == nil || dst == nil {
 			return "", process.ErrInvalidNetwork
 		}
-		return tunHandler.handleResolveProcess(src, dst), nil
+		return th.handleResolveProcess(src, dst), nil
 	}
 }
 
@@ -139,8 +144,10 @@ var (
 func handleStopTun() {
 	tunLock.Lock()
 	defer tunLock.Unlock()
-	if tunHandler != nil {
-		tunHandler.close()
+	handler := tunHandler
+	tunHandler = nil
+	if handler != nil {
+		handler.close()
 	}
 }
 
@@ -157,14 +164,14 @@ func handleStartTun(callback unsafe.Pointer, fd int, stack, address, dns string)
 		}
 		return false
 	}
-	tunHandler = &TunHandler{
+	handler := &TunHandler{
 		callback: callback,
 		limit:    semaphore.NewWeighted(4),
 	}
-	if !tunHandler.start(fd, stack, address, dns) {
-		tunHandler = nil
+	if !handler.start(fd, stack, address, dns) {
 		return false
 	}
+	tunHandler = handler
 	return true
 }
 

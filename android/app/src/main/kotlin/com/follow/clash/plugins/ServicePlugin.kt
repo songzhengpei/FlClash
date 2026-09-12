@@ -22,15 +22,44 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.net.NetworkInterface
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+
+internal class PendingCoreInvocations {
+    private val nextId = AtomicLong(0)
+    private val completions = ConcurrentHashMap<Long, (String?) -> Unit>()
+
+    fun register(complete: (String?) -> Unit): (String?) -> Unit {
+        val id = nextId.incrementAndGet()
+        val completed = AtomicBoolean(false)
+        val terminal: (String?) -> Unit = terminal@{ value ->
+            if (!completed.compareAndSet(false, true)) return@terminal
+            completions.remove(id)
+            complete(value)
+        }
+        completions[id] = terminal
+        return terminal
+    }
+
+    fun failAll() {
+        completions.values.toList().forEach { it(null) }
+    }
+
+    internal fun size(): Int = completions.size
+}
 
 internal suspend fun forwardCoreInvocation(
     invoke: suspend (((String?) -> Unit)) -> Result<Unit>,
     complete: (String?) -> Unit,
+    pending: PendingCoreInvocations? = null,
 ) {
-    val completed = AtomicBoolean(false)
-    val completeOnce: (String?) -> Unit = { value ->
-        if (completed.compareAndSet(false, true)) complete(value)
+    val completeOnce: (String?) -> Unit = pending?.register(complete) ?: run {
+        val completed = AtomicBoolean(false)
+        val fallback: (String?) -> Unit = { value ->
+            if (completed.compareAndSet(false, true)) complete(value)
+        }
+        fallback
     }
     runCatching { invoke(completeOnce) }.fold(
         onSuccess = { it.onFailure { completeOnce(null) } },
@@ -41,6 +70,7 @@ internal suspend fun forwardCoreInvocation(
 class ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     CoroutineScope by CoroutineScope(SupervisorJob() + Dispatchers.Default) {
     private lateinit var flutterMethodChannel: MethodChannel
+    private val pendingCoreInvocations = PendingCoreInvocations()
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         flutterMethodChannel = MethodChannel(
@@ -51,6 +81,7 @@ class ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     }
 
     override fun onDetachedFromEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
+        pendingCoreInvocations.failAll()
         flutterMethodChannel.setMethodCallHandler(null)
     }
 
@@ -136,6 +167,7 @@ class ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             forwardCoreInvocation(
                 invoke = { callback -> Service.invokeAction(data, callback) },
                 complete = result::success,
+                pending = pendingCoreInvocations,
             )
         }
     }
@@ -178,6 +210,10 @@ class ServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     }
 
     private fun onServiceDisconnected(message: String) {
+        // AIDL callbacks already handed to the dead remote process will never
+        // arrive. Complete them now so Flutter can reconnect instead of waiting
+        // for each request's three-minute watchdog.
+        pendingCoreInvocations.failAll()
         launch { State.handleSyncState() }
         flutterMethodChannel.invokeMethodOnMainThread<Any>("crash", message)
     }
