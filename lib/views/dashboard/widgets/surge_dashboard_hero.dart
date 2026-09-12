@@ -242,19 +242,10 @@ class _SurgeDashboardHeroState extends ConsumerState<SurgeDashboardHero>
     ref.listen(isStartProvider, (previous, next) {
       final smartStopped = ref.read(isSmartStoppedProvider);
       _syncOutboundFill(isStart: next, isSmartStopped: smartStopped);
-      if (_transitionKind == 'start' && next) {
-        _sheenController.stop();
-        _connectingTimer?.cancel();
-        if (mounted) {
-          setState(() {
-            _showConnecting = false;
-            _transitionKind = null;
-          });
-        }
-      } else if (_transitionKind == 'stop' && !next && !smartStopped) {
-        _sheenController.stop();
-        if (mounted) setState(() => _transitionKind = null);
-      }
+      // Visible providers can publish an intermediate RUNNING/PAUSED snapshot
+      // before updateStatus has finished reconciling the native transition.
+      // Keep the action disabled until _handleSwitchStart's Future completes;
+      // otherwise the button can change meaning underneath a rapid second tap.
     });
 
     ref.listen(isSmartStoppedProvider, (previous, next) {
@@ -266,12 +257,6 @@ class _SurgeDashboardHeroState extends ConsumerState<SurgeDashboardHero>
       if (next && previous == false && _transitionKind == 'start') {
         _sheenController.repeat();
         if (mounted) setState(() => _transitionKind = 'pausing');
-        return;
-      }
-      // "暂停中" resolved → stop sheen
-      if (_transitionKind == 'pausing' && isSmartPaused) {
-        _sheenController.stop();
-        if (mounted) setState(() => _transitionKind = null);
       }
     });
 

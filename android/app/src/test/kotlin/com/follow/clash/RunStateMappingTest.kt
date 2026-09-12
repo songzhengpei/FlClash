@@ -52,6 +52,30 @@ class RunStateMappingTest {
     }
 
     @Test
+    fun stopRequestCancelsPreparationWithoutDestroyingActiveTransitions() {
+        assertEquals(
+            StopRequestAction.CANCEL_PENDING_START,
+            stopRequestActionForSessionState(SessionState.STOPPED),
+        )
+        assertEquals(
+            StopRequestAction.WAIT_FOR_TRANSITION,
+            stopRequestActionForSessionState(SessionState.STARTING),
+        )
+        assertEquals(
+            StopRequestAction.WAIT_FOR_TRANSITION,
+            stopRequestActionForSessionState(SessionState.STOPPING),
+        )
+        assertEquals(
+            StopRequestAction.FULL_STOP,
+            stopRequestActionForSessionState(SessionState.RUNNING),
+        )
+        assertEquals(
+            StopRequestAction.FULL_STOP,
+            stopRequestActionForSessionState(SessionState.PAUSED),
+        )
+    }
+
+    @Test
     fun explicitStartRevalidatesCachedRunningState() {
         assertEquals(true, canAttemptExplicitStart(RunState.STOP))
         assertEquals(true, canAttemptExplicitStart(RunState.START))
