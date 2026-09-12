@@ -12,6 +12,11 @@ class AppChangelogEntry {
 
 const appChangelogEntries = <AppChangelogEntry>[
   AppChangelogEntry(
+    version: 'v2.2.3',
+    date: '2026-09-12',
+    changes: ['优化界面长按反馈显示'],
+  ),
+  AppChangelogEntry(
     version: 'v2.2.2',
     date: '2026-09-11',
     changes: [
